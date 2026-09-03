@@ -1197,47 +1197,15 @@ class WebChannel(ChatChannel):
         text: str,
         agent_id: str = None,
     ) -> None:
-        try:
-            from bridge.bridge import Bridge
-            reply = Bridge().fetch_text_to_voice(text)
-            if reply is None or reply.type != ReplyType.VOICE or not reply.content:
-                logger.warning(
-                    f"[WebChannel] TTS produced no audio for request {request_id}: "
-                    f"reply={reply}"
-                )
-                return
-            url = self._publish_tts_audio(reply.content, agent_id)
-            if not url:
-                logger.warning(f"[WebChannel] TTS publish failed for request {request_id}")
-                return
-            payload = {"audio": {"url": url, "kind": "tts"}}
-            try:
-                from agent.memory import get_conversation_store
-                from agent.registry import get_agent_registry
-                profile = get_agent_registry().get(agent_id)
-                get_conversation_store(
-                    profile.workspace
-                ).attach_extras_to_last_assistant(session_id, payload)
-            except Exception as e:
-                logger.debug(f"[WebChannel] tts persist skipped: {e}")
-            if request_id not in self.sse_streams:
-                logger.warning(
-                    f"[WebChannel] TTS ready but SSE stream already closed "
-                    f"for request {request_id} (url={url})"
-                )
-                return
-            self._publish_sse_event(request_id, {
-                "type": "voice_attach",
-                "url": url,
-                "request_id": request_id,
-                "timestamp": time.time(),
-            })
-            logger.info(f"[WebChannel] TTS voice_attach pushed for request {request_id}: {url}")
-        except Exception as e:
-            # TTS failures are intentionally silent (no user-facing error).
-            logger.warning(f"[WebChannel] TTS synthesis failed: {e}")
-        finally:
-            self._publish_sse_event(request_id, {"type": "stream_end"})
+        """No-op since Milestone 1.3 removed the voice/ vendor TTS SDKs.
+
+        Kept as a stub so the auto-TTS dispatcher above stays callable; the
+        console's voice UI (and this method with it) is removed in 1.3b.
+        """
+        logger.info(
+            f"[WebChannel] TTS skipped for request {request_id}: no text-to-speech "
+            "engine in this build"
+        )
 
     @staticmethod
     def _publish_tts_audio(src_path: str, agent_id: str = None) -> str:
@@ -2256,14 +2224,12 @@ class VoiceAsrHandler:
             suffix = f"?agent_id={agent_id}" if agent_id else ""
             audio_url = f"/uploads/{saved_name}{suffix}"
 
-            from bridge.bridge import Bridge
-            reply = Bridge().fetch_voice_to_text(saved_path)
-            if reply is None:
-                return json.dumps({
-                    "status": "error",
-                    "message": "ASR returned no reply",
-                    "audio_url": audio_url,
-                })
+            # No speech-to-text engine since Milestone 1.3 (voice/ removed).
+            return json.dumps({
+                "status": "error",
+                "message": "speech-to-text is not available in this build",
+                "audio_url": audio_url,
+            })
 
             from bridge.reply import ReplyType
             if reply.type == ReplyType.TEXT:
@@ -2300,11 +2266,11 @@ class VoiceTtsHandler:
             if not channel._tts_provider_ready():
                 return json.dumps({"status": "error", "message": "tts not configured"})
 
-            from bridge.bridge import Bridge
-            reply = Bridge().fetch_text_to_voice(text)
-            if reply is None or reply.type != ReplyType.VOICE or not reply.content:
-                msg = getattr(reply, "content", "") or "tts failed"
-                return json.dumps({"status": "error", "message": str(msg)})
+            # No text-to-speech engine since Milestone 1.3 (voice/ removed).
+            return json.dumps({
+                "status": "error",
+                "message": "text-to-speech is not available in this build",
+            })
 
             url = channel._publish_tts_audio(reply.content, agent_id)
             if not url:
@@ -4639,11 +4605,10 @@ class ModelsHandler:
 
     @staticmethod
     def _refresh_voice_routing() -> None:
-        try:
-            from bridge.bridge import Bridge
-            Bridge().refresh_voice()
-        except Exception as e:
-            logger.warning(f"[ModelsHandler] Bridge voice refresh failed: {e}")
+        # No-op since Milestone 1.3: the Bridge no longer routes voice bots.
+        # Kept so the ASR/TTS settings handlers stay callable until 1.3b removes
+        # the console voice UI outright.
+        return
 
     def _set_embedding(self, provider_id: str, model: str) -> str:
         # Validate provider_id — mirrors _set_chat's validation pattern.

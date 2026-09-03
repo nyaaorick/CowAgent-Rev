@@ -171,9 +171,3 @@ class Channel(object):
         else:
             # Normal mode
             return Bridge().fetch_reply_content(query, context)
-
-    def build_voice_to_text(self, voice_file) -> Reply:
-        return Bridge().fetch_voice_to_text(voice_file)
-
-    def build_text_to_voice(self, text) -> Reply:
-        return Bridge().fetch_text_to_voice(text)

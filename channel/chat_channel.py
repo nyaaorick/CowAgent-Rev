@@ -15,11 +15,6 @@ from common.i18n import t as _t
 from common.runtime_identity import RuntimeIdentity, use_identity
 from plugins import *
 
-try:
-    from voice.audio_convert import any_to_wav
-except Exception as e:
-    pass
-
 handler_pool = ThreadPoolExecutor(max_workers=8)  # 处理消息的线程池
 
 
@@ -234,25 +229,18 @@ class ChatChannel(Channel):
                 context["channel"] = e_context["channel"]
                 reply = super().build_reply_content(context.content, context)
             elif context.type == ContextType.VOICE:  # 语音消息
+                # Speech-to-text was removed with the voice/ vendor SDKs in
+                # Milestone 1.3. The message is still received and its media
+                # still downloaded (WCF, Milestone 4.3) -- we simply have no
+                # engine to transcribe it, so say so rather than failing opaquely.
                 cmsg = context["msg"]
                 cmsg.prepare()
-                file_path = context.content
-                wav_path = os.path.splitext(file_path)[0] + ".wav"
                 try:
-                    any_to_wav(file_path, wav_path)
-                except Exception as e:  # 转换失败，直接使用mp3，对于某些api，mp3也可以识别
-                    logger.warning("[chat_channel]any to wav error, use raw path. " + str(e))
-                    wav_path = file_path
-                # 语音识别
-                reply = super().build_voice_to_text(wav_path)
-                # 删除临时文件
-                try:
-                    os.remove(file_path)
-                    if wav_path != file_path:
-                        os.remove(wav_path)
-                except Exception as e:
+                    os.remove(context.content)
+                except Exception:
                     pass
-                    # logger.warning("[chat_channel]delete temp file error: " + str(e))
+                logger.info("[chat_channel] voice message ignored: no speech-to-text engine configured")
+                reply = Reply(ReplyType.ERROR, _t("暂不支持语音消息，请发送文字。", "Voice messages are not supported; please send text."))
 
                 if reply.type == ReplyType.TEXT:
                     new_context = self._compose_context(ContextType.TEXT, reply.content, **context.kwargs)
@@ -292,11 +280,6 @@ class ChatChannel(Channel):
 
                 if reply.type == ReplyType.TEXT:
                     reply_text = reply.content
-                    if desire_rtype == ReplyType.VOICE and ReplyType.VOICE not in self.NOT_SUPPORT_REPLYTYPE:
-                        # Preserve original text for the "text-then-voice" pattern in _send_reply.
-                        context["voice_reply_text"] = reply.content
-                        reply = super().build_text_to_voice(reply.content)
-                        return self._decorate_reply(context, reply)
                     if context.get("isgroup", False):
                         if not context.get("no_need_at", False):
                             reply_text = "@" + context["msg"].actual_user_nickname + "\n" + reply_text.strip()
