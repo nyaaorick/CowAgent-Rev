@@ -53,6 +53,42 @@ class ChatGPTSession(Session):
         return num_tokens_from_messages(self.messages, self.model)
 
 
+class BaiduWenxinSession(Session):
+    """Character-count session used for models that reject a system prompt
+    (e.g. o1 / o1-mini). Kept here after models/baidu/ was removed."""
+
+    def __init__(self, session_id, system_prompt=None, model="gpt-3.5-turbo"):
+        super().__init__(session_id, system_prompt)
+        self.model = model
+        # These models don't support a system prompt, so don't seed one.
+        # self.reset()
+
+    def discard_exceeding(self, max_tokens, cur_tokens=None):
+        precise = True
+        try:
+            cur_tokens = self.calc_tokens()
+        except Exception as e:
+            precise = False
+            if cur_tokens is None:
+                raise e
+            logger.debug("Exception when counting tokens precisely for query: {}".format(e))
+        while cur_tokens > max_tokens:
+            if len(self.messages) >= 2:
+                self.messages.pop(0)
+                self.messages.pop(0)
+            else:
+                logger.debug("max_tokens={}, total_tokens={}, len(messages)={}".format(max_tokens, cur_tokens, len(self.messages)))
+                break
+            if precise:
+                cur_tokens = self.calc_tokens()
+            else:
+                cur_tokens = cur_tokens - max_tokens
+        return cur_tokens
+
+    def calc_tokens(self):
+        return num_tokens_by_character(self.messages)
+
+
 # refer to https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb
 def num_tokens_from_messages(messages, model):
     """Returns the number of tokens used by a list of messages."""

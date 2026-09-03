@@ -185,40 +185,13 @@ LINKAI_4_TURBO = "linkai-4-turbo"
 LINKAI_4o = "linkai-4o"
 MODELSCOPE = "modelscope"
 
-GITEE_AI_MODEL_LIST = ["Yi-34B-Chat", "InternVL2-8B", "deepseek-coder-33B-instruct", "InternVL2.5-26B", "Qwen2-VL-72B", "Qwen2.5-32B-Instruct", "glm-4-9b-chat", "codegeex4-all-9b", "Qwen2.5-Coder-32B-Instruct", "Qwen2.5-72B-Instruct", "Qwen2.5-7B-Instruct", "Qwen2-72B-Instruct", "Qwen2-7B-Instruct", "code-raccoon-v1", "Qwen2.5-14B-Instruct"]
-
-MODELSCOPE_MODEL_LIST = ["deepseek-ai/DeepSeek-R1-0528", "deepseek-ai/DeepSeek-R1-Distill-Llama-70B", "deepseek-ai/DeepSeek-R1-Distill-Llama-8B", "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B", "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B", "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
-                         "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", "deepseek-ai/DeepSeek-V3.2", "LLM-Research/c4ai-command-r-plus-08-2024", "LLM-Research/Llama-4-Maverick-17B-128E-Instruct", "meituan-longcat/LongCat-Flash-Lite", "MiniMax/MiniMax-M1-80k", "MiniMax/MiniMax-M2.5", "mistralai/Ministral-8B-Instruct-2410",
-                         "mistralai/Mistral-Large-Instruct-2407", "mistralai/Mistral-Small-Instruct-2409", "moonshotai/Kimi-K2.5", "MusePublic/Qwen-Image-Edit", "opencompass/CompassJudger-1-32B-Instruct", "OpenGVLab/InternVL3_5-241B-A28B",
-                         "Qwen/QVQ-72B-Preview", "Qwen/Qwen-Image-Edit", "Qwen/Qwen3-0.6B", "Qwen/Qwen3-1.7B", "Qwen/Qwen3-14B", "Qwen/Qwen3-235B-A22B", "Qwen/Qwen3-235B-A22B-Instruct-2507", "Qwen/Qwen3-235B-A22B-Thinking-2507", "Qwen/Qwen3-30B-A3B", "Qwen/Qwen3-30B-A3B-Thinking-2507",
-                         "Qwen/Qwen3-32B", "Qwen/Qwen3-4B", "Qwen/Qwen3-8B", "Qwen/Qwen3-Coder-30B-A3B-Instruct", "Qwen/Qwen3-Coder-480B-A35B-Instruct", "Qwen/Qwen3-Next-80B-A3B-Instruct", "Qwen/Qwen3-Next-80B-A3B-Thinking", "Qwen/Qwen3-VL-235B-A22B-Instruct", "Qwen/Qwen3-VL-8B-Instruct",
-                         "Qwen/Qwen3-VL-8B-Thinking", "Qwen/Qwen3.5-122B-A10B", "Qwen/Qwen3.5-27B", "Qwen/Qwen3.5-35B-A3B", "Qwen/Qwen3.5-397B-A17B", "Qwen/QwQ-32B", "Qwen/QwQ-32B-Preview", "Shanghai_AI_Laboratory/Intern-S1", "Shanghai_AI_Laboratory/Intern-S1-mini",
-                         "stepfun-ai/Step-3.5-Flash", "XiaomiMiMo/MiMo-V2-Flash", "ZhipuAI/GLM-4.7-Flash", "ZhipuAI/GLM-5"]
-
-
+# CowAgent-Rev keeps two backends: the OpenAI-compatible aggregator and the
+# Zhipu (GLM) native SDK. MODEL_LIST is only consumed by the `#model` admin
+# command's validation guard (plugins/godcmd). Models reachable through an
+# OpenAI-compatible aggregator (Claude / Gemini / DeepSeek / Qwen / ... proxied
+# by OneAPI, NewAPI, etc.) still work with bot_type "openai"/"custom"; widen this
+# list if you want `#model <name>` to accept them without editing code.
 MODEL_LIST = [
-              # DeepSeek
-              DEEPSEEK_V4_FLASH, DEEPSEEK_V4_PRO, DEEPSEEK_CHAT, DEEPSEEK_REASONER,
-
-              # Baidu Qianfan / ERNIE
-              QIANFAN, ERNIE_5_1, ERNIE_5, ERNIE_X1_1, ERNIE_45_TURBO_128K, ERNIE_45_TURBO_32K, ERNIE_4_TURBO_8K,
-              ERNIE_45_TURBO_VL, ERNIE_45_TURBO_VL_32K,
-
-              # MiniMax
-              MiniMax, MINIMAX_M3, MINIMAX_M2_7, MINIMAX_M2_7_HIGHSPEED, MINIMAX_ABAB6_5,
-
-              # Xiaomi MiMo
-              MIMO, MIMO_V2_5_PRO, MIMO_V2_5, MIMO_V2_PRO, MIMO_V2_OMNI, MIMO_V2_FLASH,
-
-              # Claude
-              CLAUDE_OPUS_5, CLAUDE_SONNET_5, CLAUDE_FABLE_5, CLAUDE3, CLAUDE_4_8_OPUS, CLAUDE_4_7_OPUS, CLAUDE_4_6_SONNET, CLAUDE_4_6_OPUS, CLAUDE_4_OPUS, CLAUDE_4_5_SONNET, CLAUDE_4_SONNET, CLAUDE_3_OPUS, CLAUDE_3_OPUS_0229,
-              CLAUDE_35_SONNET, CLAUDE_35_SONNET_1022, CLAUDE_35_SONNET_0620, CLAUDE_3_SONNET, CLAUDE_3_HAIKU,
-              "claude", "claude-3-haiku", "claude-3-sonnet", "claude-3-opus", "claude-3.5-sonnet",
-
-              # Gemini
-              GEMINI_37_FLASH, GEMINI_36_FLASH, GEMINI_35_FLASH, GEMINI_31_FLASH_LITE_PRE, GEMINI_31_PRO_PRE, GEMINI_3_PRO_PRE, GEMINI_3_FLASH_PRE, GEMINI_25_PRO_PRE, GEMINI_25_FLASH_PRE,
-              GEMINI_20_FLASH, GEMINI_20_flash_exp, GEMINI_15_PRO, GEMINI_15_flash, GEMINI_PRO, GEMINI,
-
               # OpenAI
               GPT35, GPT35_0125, GPT35_1106, "gpt-3.5-turbo-16k",
               GPT4, GPT4_06_13, GPT4_32k, GPT4_32k_06_13,
@@ -233,29 +206,7 @@ MODEL_LIST = [
               # GLM (Zhipu AI)
               ZHIPU_AI, GLM_5_3_FLASH, GLM_5_3, GLM_5_2, GLM_5_1, GLM_5_TURBO, GLM_5, GLM_4, GLM_4_PLUS, GLM_4_flash, GLM_4_LONG, GLM_4_ALLTOOLS,
               GLM_4_0520, GLM_4_AIR, GLM_4_AIRX, GLM_4_7,
-
-              # Qwen
-              QWEN38_FLASH, QWEN37_PLUS, QWEN37_MAX, QWEN38_MAX, QWEN36_PLUS, QWEN35_PLUS, QWEN3_MAX, QWEN_MAX, QWEN_PLUS, QWEN_TURBO, QWEN_LONG,
-
-              # Doubao
-              DOUBAO, DOUBAO_SEED_2_1_PRO, DOUBAO_SEED_2_1_TURBO,
-              DOUBAO_SEED_2_CODE, DOUBAO_SEED_2_PRO, DOUBAO_SEED_2_LITE, DOUBAO_SEED_2_MINI,
-
-              # Kimi (Moonshot)
-              MOONSHOT, "moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k",
-              KIMI_K3, KIMI_K2_7_CODE, KIMI_K2_7_CODE_HIGHSPEED, KIMI_K2_6, KIMI_K2_5, KIMI_K2,
-
-              # ModelScope
-              MODELSCOPE,
-
-              # LinkAI
-              LINKAI_35, LINKAI_4_TURBO, LINKAI_4o,
-
-              # Other models
-              WEN_XIN, WEN_XIN_4, XUNFEI,
             ]
-
-MODEL_LIST = MODEL_LIST + GITEE_AI_MODEL_LIST + MODELSCOPE_MODEL_LIST
 
 # Fallback model when `model` is missing from the config. Keep in sync with
 # config-template.json so a config without an explicit model behaves the same

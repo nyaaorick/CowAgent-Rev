@@ -18,7 +18,7 @@ from common.i18n import t as _t
 from models.bot import Bot
 from models.openai_compatible_bot import OpenAICompatibleBot
 from models.custom_provider import resolve_custom_credentials, parse_custom_bot_type
-from models.chatgpt.chat_gpt_session import ChatGPTSession
+from models.chatgpt.chat_gpt_session import ChatGPTSession, BaiduWenxinSession
 from models.openai.open_ai_image import OpenAIImage
 from models.session_manager import SessionManager
 from bridge.context import ContextType
@@ -26,7 +26,6 @@ from bridge.reply import Reply, ReplyType
 from common.log import logger
 from common.token_bucket import TokenBucket
 from config import conf, load_config
-from models.baidu.baidu_wenxin_session import BaiduWenxinSession
 
 # OpenAI对话模型API (可用)
 class ChatGPTBot(Bot, OpenAIImage, OpenAICompatibleBot):
