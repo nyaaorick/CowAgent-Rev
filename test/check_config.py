@@ -39,14 +39,14 @@ def main() -> None:
     if channel == "wcf":
         wcf_client = os.path.join(ROOT, "WeChatFerry", "clients", "python", "wcferry", "client.py")
         if not os.path.isfile(wcf_client):
-            fail("channel_type is 'wcf' but the WeChatFerry submodule is missing.\n"
-                 "    Run: git submodule update --init")
+            fail("channel_type is 'wcf' but WeChatFerry/clients/python is missing.\n"
+                 "    It is vendored in this repo; try: git checkout -- WeChatFerry")
         try:
             import wcferry  # noqa: F401
         except ImportError:
             fail("channel_type is 'wcf' but the wcferry package is not installed.\n"
                  "    Run: .venv\\Scripts\\pip install wcferry\n"
-                 "    (wcferry is Windows-only; it is skipped on macOS by design.)")
+                 "    (wcferry is Windows-only; requirements.txt skips it on macOS by design.)")
     elif channel not in ("web", "terminal"):
         fail(f"channel_type {channel!r} is not supported. Use 'web', 'terminal', or 'wcf'.")
 

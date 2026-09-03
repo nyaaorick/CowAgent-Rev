@@ -68,8 +68,12 @@ def test_run_cmd_sets_utf8_before_anything_prints():
     assert "chcp 65001" in cmd
 
 
-def test_run_cmd_initializes_the_submodule():
-    assert "git submodule update --init" in _read("run.cmd")
+def test_run_cmd_checks_the_vendored_wechatferry():
+    """WeChatFerry is vendored, not a submodule: run.cmd must verify it is
+    present and say so clearly, never tell the operator to init a submodule."""
+    cmd = _read("run.cmd")
+    assert "WeChatFerry" in cmd
+    assert "git submodule" not in cmd, "WeChatFerry is vendored; submodule advice is wrong"
 
 
 def test_the_real_config_is_git_ignored():

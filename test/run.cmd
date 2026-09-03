@@ -36,18 +36,16 @@ if not defined PY (
 for /f "tokens=2" %%v in ('%PY% --version 2^>^&1') do set "PYVER=%%v"
 echo [1/5] Python %PYVER%  ^(%PY%^)
 
-REM ------------------------------------------------------------ submodule
+REM ----------------------------------------------------------- WeChatFerry
+REM Vendored in this repo, so a plain clone or ZIP already has it. If it is
+REM missing the checkout is incomplete -- say so rather than failing later.
 if not exist "%ROOT%\WeChatFerry\clients\python\wcferry\client.py" (
-    echo [2/5] Fetching the WeChatFerry submodule...
-    git submodule update --init --depth 1 WeChatFerry
-    if errorlevel 1 (
-        echo [X] git submodule update failed. Is git installed and this a clone
-        echo     ^(not a downloaded ZIP^)? A ZIP download has no submodules.
-        goto :fail
-    )
-) else (
-    echo [2/5] WeChatFerry submodule present
+    echo [X] WeChatFerry\clients\python is missing from this checkout.
+    echo     It is vendored in this repo, so a normal clone should include it.
+    echo     Try: git checkout -- WeChatFerry
+    goto :fail
 )
+echo [2/5] WeChatFerry present ^(vendored^)
 
 REM ----------------------------------------------------------------- venv
 if not exist "%VENV%\Scripts\python.exe" (
