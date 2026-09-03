@@ -1,0 +1,35 @@
+{
+  "cow_lang": "auto",
+  "channel_type": "web",
+  "wcf_host": "127.0.0.1",
+  "wcf_port": 10086,
+  "wcf_debug": false,
+  "model": "glm-4.7-flash",
+  "zhipu_ai_api_key": "",
+  "zhipu_ai_api_base": "https://open.bigmodel.cn/api/paas/v4",
+  "open_ai_api_key": "",
+  "open_ai_api_base": "https://api.openai.com/v1",
+  "web_host": "",
+  "web_port": 9899,
+  "web_password": "",
+  "agent": true,
+  "agent_max_context_tokens": 64000,
+  "agent_max_context_turns": 30,
+  "agent_max_steps": 30,
+  "agent_permission_mode": "full-access",
+  "subagent": {
+    "enabled": true,
+    "max_concurrent": 3
+  },
+  "agent_delegation": {
+    "enabled": true,
+    "max_depth": 3,
+    "timeout_seconds": 120,
+    "default_wait_seconds": 30
+  },
+  "enable_thinking": false,
+  "reasoning_effort": "high",
+  "knowledge": true,
+  "self_evolution_enabled": true,
+  "mcp_tool_retrieval_enabled": false
+}
