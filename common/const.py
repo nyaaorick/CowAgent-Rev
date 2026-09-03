@@ -214,6 +214,7 @@ MODEL_LIST = [
 DEFAULT_MODEL = DEEPSEEK_V4_FLASH
 
 # channel
+WCF = "wcf"  # WeChatFerry channel (adapter implemented in Milestone 4.2)
 FEISHU = "feishu"
 DINGTALK = "dingtalk"
 WECOM_BOT = "wecom_bot"

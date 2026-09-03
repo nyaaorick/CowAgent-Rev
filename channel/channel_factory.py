@@ -1,6 +1,7 @@
 """
 channel factory
 """
+from common import const
 from .channel import Channel
 
 
@@ -44,6 +45,16 @@ def _build_channel(channel_type) -> Channel:
     elif channel_type == "web":
         from channel.web.web_channel import WebChannel
         ch = WebChannel()
+    elif channel_type == const.WCF:
+        # config-template.json already defaults to "wcf" -- the deployment
+        # target -- so give the operator the real reason rather than the
+        # generic "unsupported" line when they start it before the adapter
+        # exists. Replaced by the real branch in Milestone 4.2.
+        raise RuntimeError(
+            "channel_type 'wcf' is configured but the WeChatFerry adapter is not "
+            "implemented yet (roadmap Milestone 4.2). Use 'web' or 'terminal' "
+            "until then."
+        )
     else:
         raise RuntimeError(f"unsupported channel_type: {channel_type!r}")
     ch.channel_type = channel_type

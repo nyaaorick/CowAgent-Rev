@@ -157,6 +157,13 @@ available_setting = {
     "weixin_credentials_path": "~/.weixin_cow_credentials.json",  # credentials file path
     # custom trigger words for chatgpt commands
     "clear_memory_commands": ["#清除记忆"],  # session-reset command; must start with #
+    # WeChatFerry (wcf) channel config -- the adapter lands in Milestone 4.2.
+    # wcferry runs in its natively supported LOCAL mode: it spawns wcf.exe and
+    # binds 127.0.0.1:10086 (command) / :10087 (events). These sockets are never
+    # exposed on the LAN.
+    "wcf_host": "127.0.0.1",  # always loopback; wcferry is not built for cross-host use
+    "wcf_port": 10086,  # command channel port; the event channel is this + 1
+    "wcf_debug": False,  # verbose wcferry logging
     # channel config
     "channel_type": "",  # channel type; supports running multiple channels at once. Single: "wcf", multiple: "wcf, web" or ["wcf", "web"]. Options: wcf (Milestone 4.2), web, terminal
     "web_console": True,  # whether to auto-start the Web console (on by default). Set False to disable
