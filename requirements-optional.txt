@@ -14,3 +14,10 @@ python-pptx
 # i18n: Traditional Chinese (zh-Hant) high-quality conversion
 # Built-in fallback provides basic conversion without this dependency
 opencc-python-reimplemented
+
+# WCF simulation harness (tests/wcf_sim) -- lets the wcf <-> GLM path be
+# developed and tested on macOS against a fake WeChatFerry server. pynng is
+# cross-platform; the harness never loads the Windows sdk.dll because
+# Wcf(host=...) runs the client in remote mode.
+pynng
+protobuf
