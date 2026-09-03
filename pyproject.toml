@@ -17,3 +17,15 @@ cow = "cli.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["cli*"]
+
+[tool.pytest.ini_options]
+# Keep collection inside tests/. WeChatFerry is vendored upstream source and
+# ships its own (non-pytest) clients/python/test.py; docker/ and docs/ hold no
+# tests.
+testpaths = ["tests"]
+norecursedirs = ["WeChatFerry", ".git", "__pycache__", "docker", "docs", ".venv"]
+markers = [
+    "live: hits a real external API (GLM). Costs money and needs network; deselected by default.",
+]
+# Live tests are opt-in: run them with `pytest -m live`.
+addopts = "-m 'not live'"
