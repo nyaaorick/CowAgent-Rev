@@ -109,7 +109,6 @@ cow skill install <name>           # install a skill
 cow install-browser                # install browser automation
 ```
 
-> 💻 Desktop client: download the **[CowAgent Desktop client](https://cowagent.ai/download/)** (macOS / Windows) — the backend is bundled, ready to use out of the box.
 
 <br/>
 
