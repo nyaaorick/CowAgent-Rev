@@ -37,19 +37,8 @@ from common.cloud_client import CloudClient  # noqa: E402
 # static mappers
 # ---------------------------------------------------------------------------
 
-def test_instance_credentials_from_maps_app_id_secret():
-    creds = CloudClient._instance_credentials_from(
-        "feishu", {"appId": "A", "appSecret": "S"}
-    )
-    assert creds == {"feishu_app_id": "A", "feishu_app_secret": "S"}
 
 
-def test_instance_credentials_from_single_token_channel():
-    # telegram has no secret key; only the token maps
-    creds = CloudClient._instance_credentials_from(
-        "telegram", {"appId": "tok", "appSecret": "ignored"}
-    )
-    assert creds == {"telegram_token": "tok"}
 
 
 def test_instance_credentials_from_unknown_type_is_empty():

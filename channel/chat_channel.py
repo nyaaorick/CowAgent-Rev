@@ -170,17 +170,6 @@ class ChatChannel(Channel):
             else:
                 context.type = ContextType.TEXT
             context.content = content.strip()
-            if "desire_rtype" not in context and conf().get("always_reply_voice") and ReplyType.VOICE not in self.NOT_SUPPORT_REPLYTYPE:
-                context["desire_rtype"] = ReplyType.VOICE
-        elif context.type == ContextType.VOICE:
-            # Voice input replies with voice when either voice_reply_voice
-            # (mirror voice) or the global always_reply_voice toggle is on.
-            if (
-                "desire_rtype" not in context
-                and (conf().get("voice_reply_voice") or conf().get("always_reply_voice"))
-                and ReplyType.VOICE not in self.NOT_SUPPORT_REPLYTYPE
-            ):
-                context["desire_rtype"] = ReplyType.VOICE
         return context
 
     def _handle(self, context: Context):

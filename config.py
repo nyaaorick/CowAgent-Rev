@@ -118,13 +118,6 @@ available_setting = {
     "embedding_model": "",     # leave empty to use the provider's default model
     "embedding_dimensions": 0, # leave empty/0 to use the provider's default dimension (1024 recommended for consistency)
     # voice config
-    "speech_recognition": True,  # whether to enable speech recognition
-    "group_speech_recognition": False,  # whether to enable group speech recognition
-    "voice_reply_voice": False,  # whether to reply to voice with voice; requires the matching TTS engine api key
-    "always_reply_voice": False,  # whether to always reply with voice
-    "voice_to_text": "openai",  # speech recognition engine: openai,baidu,google,azure,xunfei,ali
-    "text_to_voice": "openai",  # TTS engine: openai,baidu,google,azure,xunfei,ali,pytts(offline),elevenlabs,edge(online)
-    "text_to_voice_model": "tts-1",
     "tts_voice_id": "alloy",
     # baidu voice api config; required when using Baidu speech recognition and TTS
     "baidu_app_id": "",
@@ -150,11 +143,6 @@ available_setting = {
     # youdao translation api config
     "youdao_translate_app_key": "",  # youdao translation api app id
     "youdao_translate_app_secret": "",  # youdao translation api app secret
-    # WeChat config
-    "weixin_token": "",  # bot_token obtained after WeChat login; leave empty to auto scan-login on startup
-    "weixin_base_url": "https://ilinkai.weixin.qq.com",  # Weixin ilink API base URL
-    "weixin_cdn_base_url": "https://novac2c.cdn.weixin.qq.com/c2c",  # CDN base URL
-    "weixin_credentials_path": "~/.weixin_cow_credentials.json",  # credentials file path
     # custom trigger words for chatgpt commands
     "clear_memory_commands": ["#清除记忆"],  # session-reset command; must start with #
     # WeChatFerry (wcf) channel config -- the adapter lands in Milestone 4.2.
@@ -577,7 +565,6 @@ def load_config():
         "dashscope_api_key": "DASHSCOPE_API_KEY",
         "dashscope_api_base": "DASHSCOPE_API_BASE",
         # Channel credentials (used by skills that check env vars)
-        "weixin_token": "WEIXIN_TOKEN",
     }
     injected = 0
     for conf_key, env_key in _CONFIG_TO_ENV.items():

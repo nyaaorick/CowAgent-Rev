@@ -32,7 +32,6 @@ from common.singleton import singleton
 from config import (
     conf,
     get_data_root,
-    get_weixin_credentials_path,
     read_config_template,
     sync_image_generation_custom_provider_env,
 )
@@ -863,17 +862,7 @@ class WebChannel(ChatChannel):
                     "bot_seq": seqs.get("bot_seq"),
                 })
                 logger.debug(f"SSE done sent for request {request_id}")
-                # Auto-trigger TTS once the bot finishes its text reply. The
-                # synthesis runs in the background so the chat stream is never
-                # blocked; the resulting audio URL is pushed via a follow-up
-                # `voice_attach` SSE event and persisted to messages.extras.
-                tts_pending = False
-                if reply.type == ReplyType.TEXT and content.strip():
-                    tts_pending = self._maybe_dispatch_auto_tts(
-                        request_id, session_id, content, context
-                    )
-                if not tts_pending:
-                    self._publish_sse_event(request_id, {"type": "stream_end"})
+                self._publish_sse_event(request_id, {"type": "stream_end"})
                 return
 
             # Fallback: polling mode
@@ -1127,132 +1116,11 @@ class WebChannel(ChatChannel):
 
         return on_event
 
-    # ------------------------------------------------------------------
-    # TTS auto-dispatch
-    # ------------------------------------------------------------------
-    @staticmethod
-    def _resolve_voice_reply_mode() -> str:
-        """
-        Decide the TTS auto-reply policy.
 
-        Source of truth is the cross-channel pair
-        (`always_reply_voice`, `voice_reply_voice`) which chat_channel
-        also consults. The web UI presents these as a single three-state
-        picker (off / voice_if_voice / always) via a lossless mapping.
-        """
-        if conf().get("always_reply_voice", False):
-            return "always"
-        if conf().get("voice_reply_voice", False):
-            return "voice_if_voice"
-        return "off"
 
-    # Mirror of ModelsHandler._TTS_PROVIDERS. zhipu is intentionally omitted
-    # from the UI (GLM-TTS prelude beep); pinning it in config.json still works.
-    _TTS_PROVIDERS_SUGGEST_ORDER = ["openai", "minimax", "dashscope", "linkai"]
 
-    @classmethod
-    def _tts_provider_ready(cls) -> bool:
-        """True if user picked a provider OR any suggested vendor has an API key."""
-        if (conf().get("text_to_voice") or "").strip():
-            return True
-        for pid in cls._TTS_PROVIDERS_SUGGEST_ORDER:
-            meta = ConfigHandler.PROVIDER_MODELS.get(pid) or {}
-            key_field = meta.get("api_key_field")
-            if not key_field:
-                continue
-            val = (conf().get(key_field) or "").strip()
-            if val and val not in ("YOUR API KEY", "YOUR_API_KEY"):
-                return True
-        return False
 
-    def _maybe_dispatch_auto_tts(
-        self,
-        request_id: str,
-        session_id: str,
-        text: str,
-        context: dict,
-    ) -> bool:
-        try:
-            mode = self._resolve_voice_reply_mode()
-            if mode == "off":
-                return False
-            if mode == "voice_if_voice" and not context.get("is_voice_input"):
-                return False
-            if not self._tts_provider_ready():
-                return False
-            threading.Thread(
-                target=self._synthesize_tts_async,
-                args=(request_id, session_id, text, context.get("agent_id")),
-                daemon=True,
-            ).start()
-            return True
-        except Exception as e:
-            logger.debug(f"[WebChannel] auto-tts dispatch skipped: {e}")
-            return False
 
-    def _synthesize_tts_async(
-        self,
-        request_id: str,
-        session_id: str,
-        text: str,
-        agent_id: str = None,
-    ) -> None:
-        """No-op since Milestone 1.3 removed the voice/ vendor TTS SDKs.
-
-        Kept as a stub so the auto-TTS dispatcher above stays callable; the
-        console's voice UI (and this method with it) is removed in 1.3b.
-        """
-        logger.info(
-            f"[WebChannel] TTS skipped for request {request_id}: no text-to-speech "
-            "engine in this build"
-        )
-
-    @staticmethod
-    def _publish_tts_audio(src_path: str, agent_id: str = None) -> str:
-        """Move a TTS file into uploads/ and return its public URL."""
-        try:
-            if not src_path or not os.path.isfile(src_path):
-                logger.warning(f"[WebChannel] publish_tts_audio missing source: {src_path!r}")
-                return ""
-            ext = os.path.splitext(src_path)[1].lower() or ".mp3"
-            upload_dir = _get_upload_dir(agent_id)
-            os.makedirs(upload_dir, exist_ok=True)
-            ts = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-            dst_name = f"voice_reply_{ts}_{random.randint(0, 9999)}{ext}"
-            dst_path = os.path.join(upload_dir, dst_name)
-            shutil.move(src_path, dst_path)
-            logger.debug(f"[WebChannel] publish_tts_audio moved {src_path} -> {dst_path}")
-            suffix = f"?agent_id={agent_id}" if agent_id else ""
-            return f"/uploads/{dst_name}{suffix}"
-        except Exception as e:
-            logger.warning(f"[WebChannel] publish_tts_audio failed: {e}")
-            return ""
-
-    @staticmethod
-    def _cleanup_stale_voice_recordings(max_age_seconds: int = 3600) -> None:
-        """Drop voice_input_* uploads older than max_age_seconds (run at startup)."""
-        try:
-            upload_dir = _get_upload_dir()
-            if not os.path.isdir(upload_dir):
-                return
-            now = time.time()
-            removed = 0
-            for name in os.listdir(upload_dir):
-                if not name.startswith("voice_input_"):
-                    continue
-                full = os.path.join(upload_dir, name)
-                try:
-                    if not os.path.isfile(full):
-                        continue
-                    if now - os.path.getmtime(full) > max_age_seconds:
-                        os.remove(full)
-                        removed += 1
-                except OSError:
-                    continue
-            if removed:
-                logger.info(f"[WebChannel] cleaned up {removed} stale voice recording(s) from {upload_dir}")
-        except Exception as e:
-            logger.warning(f"[WebChannel] voice cleanup failed: {e}")
 
     def upload_file(self):
         """Handle file or directory upload via multipart/form-data."""
@@ -1400,11 +1268,6 @@ class WebChannel(ChatChannel):
             typed_prompt = prompt
             use_sse = json_data.get('stream', True)
             attachments = json_data.get('attachments', [])
-            # Tag the message as originating from voice input so the post-reply
-            # TTS hook can honour the `voice_if_voice` policy (mirrors the
-            # desire_rtype concept used by other channels).
-            is_voice_input = bool(json_data.get('is_voice', False))
-
             # Fast path for /cancel: bypass the session queue and SSE setup.
             # Web frontend (stream=true) only listens to SSE, so we return an
             # inline_reply payload to be rendered synchronously.
@@ -1540,12 +1403,6 @@ class WebChannel(ChatChannel):
                 addressed = _addressed_agent_id(typed_prompt, roster)
             if addressed and addressed != resolved_agent_id:
                 context["speaker_agent_id"] = addressed
-            if is_voice_input:
-                # Web channel runs its own TTS post-pipeline via
-                # _maybe_dispatch_auto_tts; don't set desire_rtype here or
-                # chat_channel would synthesize a duplicate VOICE reply.
-                context["is_voice_input"] = True
-
             if use_sse:
                 context["on_event"] = self._make_sse_callback(request_id)
 
@@ -1871,8 +1728,6 @@ class WebChannel(ChatChannel):
         port = int(os.environ.get("COW_WEB_PORT") or conf().get("web_port", 9899))
         is_public_bind = host in ("0.0.0.0", "::")
 
-        self._cleanup_stale_voice_recordings()
-
         def _log_startup_banner():
             """Announce the console. Only called once the socket is actually
             bound — printing it up front made a failed bind look like a
@@ -1884,33 +1739,9 @@ class WebChannel(ChatChannel):
             zh_channels = [
                 ("web", "Web"),
                 ("terminal", "Terminal"),
-                ("weixin", "WeChat"),
-                ("feishu", "Feishu"),
-                ("dingtalk", "DingTalk"),
-                ("wecom_bot", "WeCom Bot"),
-                ("wechatcom_app", "WeCom App"),
-                ("wechat_kf", "WeChat Customer Service"),
-                ("wechatmp", "WeChat Official Account"),
-                ("wechatmp_service", "WeChat Official Account (Service)"),
-                ("telegram", "Telegram"),
-                ("slack", "Slack"),
-                ("discord", "Discord"),
+                ("wcf", "WeChat (WeChatFerry)"),
             ]
-            en_channels = [
-                ("web", "Web"),
-                ("terminal", "Terminal"),
-                ("telegram", "Telegram"),
-                ("slack", "Slack"),
-                ("discord", "Discord"),
-                ("weixin", "WeChat"),
-                ("feishu", "Feishu"),
-                ("dingtalk", "DingTalk"),
-                ("wecom_bot", "WeCom Bot"),
-                ("wechatcom_app", "WeCom App"),
-                ("wechat_kf", "WeChat Customer Service"),
-                ("wechatmp", "WeChat Official Account"),
-                ("wechatmp_service", "WeChat Official Account (Service)"),
-            ]
+            en_channels = list(zh_channels)
             channels = en_channels if i18n.get_language() == "en" else zh_channels
             name_width = max(len(name) for name, _ in channels)
             for idx, (name, label) in enumerate(channels, 1):
@@ -1967,8 +1798,6 @@ class WebChannel(ChatChannel):
             '/api/projects/browse', 'ProjectBrowseHandler',
             '/api/projects/order', 'ProjectOrderHandler',
             '/api/projects/manage', 'ProjectManageHandler',
-            '/api/voice/asr', 'VoiceAsrHandler',
-            '/api/voice/tts', 'VoiceTtsHandler',
             '/poll', 'PollHandler',
             '/stream', 'StreamHandler',
             '/cancel', 'CancelHandler',
@@ -1976,8 +1805,6 @@ class WebChannel(ChatChannel):
             '/config', 'ConfigHandler',
             '/api/models', 'ModelsHandler',
             '/api/channels', 'ChannelsHandler',
-            '/api/weixin/qrlogin', 'WeixinQrHandler',
-            '/api/feishu/register', 'FeishuRegisterHandler',
             '/api/tools', 'ToolsHandler',
             '/api/skills', 'SkillsHandler',
             '/api/skills/content', 'SkillContentHandler',
@@ -2193,104 +2020,8 @@ class UploadHandler:
         return WebChannel().upload_file()
 
 
-class VoiceAsrHandler:
-    """Receive a mic recording, persist it under uploads/ and run ASR.
-    Returns {status, text, audio_url} so the UI can render a playback bubble."""
-    def POST(self):
-        _require_auth()
-        web.header('Content-Type', 'application/json; charset=utf-8')
-
-        saved_path = None
-        try:
-            params = _raw_web_input()
-            agent_id = _request_agent_id(params)
-            file_obj = params.get("file")
-            if file_obj is None:
-                return json.dumps({"status": "error", "message": "no audio file"})
-
-            filename = getattr(file_obj, "filename", "") or "recording.webm"
-            ext = os.path.splitext(filename)[1].lower() or ".webm"
-            if ext not in (".webm", ".ogg", ".opus", ".mp4", ".m4a", ".mp3", ".wav"):
-                ext = ".webm"
-
-            upload_dir = _get_upload_dir(agent_id)
-            os.makedirs(upload_dir, exist_ok=True)
-            ts = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-            saved_name = f"voice_input_{ts}_{random.randint(0, 9999)}{ext}"
-            saved_path = os.path.join(upload_dir, saved_name)
-            with open(saved_path, "wb") as f:
-                f.write(file_obj.file.read() if hasattr(file_obj, "file") else file_obj.value)
-
-            suffix = f"?agent_id={agent_id}" if agent_id else ""
-            audio_url = f"/uploads/{saved_name}{suffix}"
-
-            # No speech-to-text engine since Milestone 1.3 (voice/ removed).
-            return json.dumps({
-                "status": "error",
-                "message": "speech-to-text is not available in this build",
-                "audio_url": audio_url,
-            })
-
-            from bridge.reply import ReplyType
-            if reply.type == ReplyType.TEXT:
-                return json.dumps({
-                    "status": "success",
-                    "text": reply.content or "",
-                    "audio_url": audio_url,
-                })
-            return json.dumps({
-                "status": "error",
-                "message": reply.content or "ASR failed",
-                "audio_url": audio_url,
-            })
-        except Exception as e:
-            logger.exception(f"[VoiceAsrHandler] failed: {e}")
-            return json.dumps({"status": "error", "message": str(e)})
 
 
-class VoiceTtsHandler:
-    """On-demand TTS for the in-chat "read aloud" button. Returns the
-    audio URL and (when session_id is given) persists it onto the message."""
-    def POST(self):
-        _require_auth()
-        web.header('Content-Type', 'application/json; charset=utf-8')
-        try:
-            data = json.loads(web.data() or b"{}")
-            text = (data.get("text") or "").strip()
-            session_id = (data.get("session_id") or "").strip()
-            agent_id = data.get("agent_id")
-            if not text:
-                return json.dumps({"status": "error", "message": "empty text"})
-            # `@singleton` makes WebChannel a factory function — go via instance.
-            channel = WebChannel()
-            if not channel._tts_provider_ready():
-                return json.dumps({"status": "error", "message": "tts not configured"})
-
-            # No text-to-speech engine since Milestone 1.3 (voice/ removed).
-            return json.dumps({
-                "status": "error",
-                "message": "text-to-speech is not available in this build",
-            })
-
-            url = channel._publish_tts_audio(reply.content, agent_id)
-            if not url:
-                return json.dumps({"status": "error", "message": "publish failed"})
-
-            if session_id:
-                try:
-                    from agent.memory import get_conversation_store
-                    from agent.registry import get_agent_registry
-                    profile = get_agent_registry().get(agent_id)
-                    get_conversation_store(profile.workspace).attach_extras_to_last_assistant(
-                        session_id, {"audio": {"url": url, "kind": "tts"}},
-                    )
-                except Exception as e:
-                    logger.debug(f"[VoiceTtsHandler] persist skipped: {e}")
-
-            return json.dumps({"status": "success", "audio_url": url})
-        except Exception as e:
-            logger.exception(f"[VoiceTtsHandler] failed: {e}")
-            return json.dumps({"status": "error", "message": str(e)})
 
 
 class UploadsHandler:
@@ -2897,36 +2628,10 @@ class ModelsHandler:
     """
 
     # Capability -> provider ids drawn from ConfigHandler.PROVIDER_MODELS.
-    _ASR_PROVIDERS = ["openai", "dashscope", "zhipu", "linkai"]
     # Web-console white-list. Other vendors stay usable via direct config.
-    _TTS_PROVIDERS = ["openai", "minimax", "dashscope", "mimo", "linkai"]
 
     # TTS engine catalog (speech models, not voice timbres). Entries are
     # either a bare code or {value, hint?} when a friendly label helps.
-    _TTS_PROVIDER_MODELS = {
-        "openai":    ["tts-1", "tts-1-hd", "gpt-4o-mini-tts"],
-        "minimax": [
-            {"value": "speech-2.8-hd",    "hint": "情绪渲染融合语气词,自然听感"},
-            {"value": "speech-2.8-turbo", "hint": "极致生成速度,更自然逼真"},
-            {"value": "speech-2.6-hd",    "hint": "超低延时,归一化升级"},
-            {"value": "speech-2.6-turbo", "hint": "更快更便宜,适合语音聊天/数字人"},
-        ],
-        "dashscope": [
-            {"value": "qwen3-tts-flash", "hint": "覆盖普通话、方言与主流外语"},
-        ],
-        # 小米 MiMo TTS 系列，通过 chat completions 接口合成
-        "mimo": [
-            {"value": "mimo-v2.5-tts", "hint": "预置音色 · 支持唱歌模式"},
-        ],
-        # Aggregating gateway: a single endpoint multiplexes several
-        # underlying TTS engines, selected via the `model` field.
-        # Each engine exposes its own voice catalog (see _TTS_PROVIDER_VOICES).
-        "linkai": [
-            {"value": "tts-1",  "hint": "OpenAI · 多语种通用"},
-            {"value": "doubao", "hint": "字节豆包 · 中文音色丰富"},
-            {"value": "baidu",  "hint": "百度 · 中文主播音色"},
-        ],
-    }
 
     # ASR engine catalog per provider. The first entry of each list is the
     # runtime default (mirrors DEFAULT_ASR_MODEL in voice/*). Users can still
@@ -2954,223 +2659,6 @@ class ModelsHandler:
     # (label = code) or {value, hint?} when a friendly secondary label
     # helps recognition. We keep `value` as the raw API code so power
     # users can cross-reference config.json.
-    _TTS_PROVIDER_VOICES = {
-        "openai":    [
-            "alloy", "echo", "fable", "onyx", "nova", "shimmer",
-            "ash", "ballad", "coral", "sage", "verse",
-        ],
-        "minimax": [
-            # Mandarin Chinese (full catalog)
-            {"value": "male-qn-qingse",                           "hint": "中文 · 青涩青年（男）"},
-            {"value": "male-qn-jingying",                         "hint": "中文 · 精英青年（男）"},
-            {"value": "male-qn-badao",                            "hint": "中文 · 霸道青年（男）"},
-            {"value": "male-qn-daxuesheng",                       "hint": "中文 · 青年大学生（男）"},
-            {"value": "female-shaonv",                            "hint": "中文 · 少女（女）"},
-            {"value": "female-yujie",                             "hint": "中文 · 御姐（女）"},
-            {"value": "female-chengshu",                          "hint": "中文 · 成熟女性（女）"},
-            {"value": "female-tianmei",                           "hint": "中文 · 甜美女性（女）"},
-            {"value": "male-qn-qingse-jingpin",                   "hint": "中文 · 青涩青年-beta（男）"},
-            {"value": "male-qn-jingying-jingpin",                 "hint": "中文 · 精英青年-beta（男）"},
-            {"value": "male-qn-badao-jingpin",                    "hint": "中文 · 霸道青年-beta（男）"},
-            {"value": "male-qn-daxuesheng-jingpin",               "hint": "中文 · 青年大学生-beta（男）"},
-            {"value": "female-shaonv-jingpin",                    "hint": "中文 · 少女-beta（女）"},
-            {"value": "female-yujie-jingpin",                     "hint": "中文 · 御姐-beta（女）"},
-            {"value": "female-chengshu-jingpin",                  "hint": "中文 · 成熟女性-beta（女）"},
-            {"value": "female-tianmei-jingpin",                   "hint": "中文 · 甜美女性-beta（女）"},
-            {"value": "clever_boy",                               "hint": "中文 · 聪明男童"},
-            {"value": "cute_boy",                                 "hint": "中文 · 可爱男童"},
-            {"value": "lovely_girl",                              "hint": "中文 · 萌萌女童"},
-            {"value": "cartoon_pig",                              "hint": "中文 · 卡通猪小琪"},
-            {"value": "bingjiao_didi",                            "hint": "中文 · 病娇弟弟"},
-            {"value": "junlang_nanyou",                           "hint": "中文 · 俊朗男友"},
-            {"value": "chunzhen_xuedi",                           "hint": "中文 · 纯真学弟"},
-            {"value": "lengdan_xiongzhang",                       "hint": "中文 · 冷淡学长"},
-            {"value": "badao_shaoye",                             "hint": "中文 · 霸道少爷"},
-            {"value": "tianxin_xiaoling",                         "hint": "中文 · 甜心小玲"},
-            {"value": "qiaopi_mengmei",                           "hint": "中文 · 俏皮萌妹"},
-            {"value": "wumei_yujie",                              "hint": "中文 · 妩媚御姐"},
-            {"value": "diadia_xuemei",                            "hint": "中文 · 嗲嗲学妹"},
-            {"value": "danya_xuejie",                             "hint": "中文 · 淡雅学姐"},
-            {"value": "Chinese (Mandarin)_Reliable_Executive",    "hint": "中文 · 沉稳高管"},
-            {"value": "Chinese (Mandarin)_News_Anchor",           "hint": "中文 · 新闻女声"},
-            {"value": "Chinese (Mandarin)_Mature_Woman",          "hint": "中文 · 傲娇御姐"},
-            {"value": "Chinese (Mandarin)_Unrestrained_Young_Man","hint": "中文 · 不羁青年"},
-            {"value": "Arrogant_Miss",                            "hint": "中文 · 嚣张小姐"},
-            {"value": "Robot_Armor",                              "hint": "中文 · 机械战甲"},
-            {"value": "Chinese (Mandarin)_Kind-hearted_Antie",    "hint": "中文 · 热心大婶"},
-            {"value": "Chinese (Mandarin)_HK_Flight_Attendant",   "hint": "中文 · 港普空姐"},
-            {"value": "Chinese (Mandarin)_Humorous_Elder",        "hint": "中文 · 搞笑大爷"},
-            {"value": "Chinese (Mandarin)_Gentleman",             "hint": "中文 · 温润男声"},
-            {"value": "Chinese (Mandarin)_Warm_Bestie",           "hint": "中文 · 温暖闺蜜"},
-            {"value": "Chinese (Mandarin)_Male_Announcer",        "hint": "中文 · 播报男声"},
-            {"value": "Chinese (Mandarin)_Sweet_Lady",            "hint": "中文 · 甜美女声"},
-            {"value": "Chinese (Mandarin)_Southern_Young_Man",    "hint": "中文 · 南方小哥"},
-            {"value": "Chinese (Mandarin)_Wise_Women",            "hint": "中文 · 阅历姐姐"},
-            {"value": "Chinese (Mandarin)_Gentle_Youth",          "hint": "中文 · 温润青年"},
-            {"value": "Chinese (Mandarin)_Warm_Girl",             "hint": "中文 · 温暖少女"},
-            {"value": "Chinese (Mandarin)_Kind-hearted_Elder",    "hint": "中文 · 花甲奶奶"},
-            {"value": "Chinese (Mandarin)_Cute_Spirit",           "hint": "中文 · 憨憨萌兽"},
-            {"value": "Chinese (Mandarin)_Radio_Host",            "hint": "中文 · 电台男主播"},
-            {"value": "Chinese (Mandarin)_Lyrical_Voice",         "hint": "中文 · 抒情男声"},
-            {"value": "Chinese (Mandarin)_Straightforward_Boy",   "hint": "中文 · 率真弟弟"},
-            {"value": "Chinese (Mandarin)_Sincere_Adult",         "hint": "中文 · 真诚青年"},
-            {"value": "Chinese (Mandarin)_Gentle_Senior",         "hint": "中文 · 温柔学姐"},
-            {"value": "Chinese (Mandarin)_Stubborn_Friend",       "hint": "中文 · 嘴硬竹马"},
-            {"value": "Chinese (Mandarin)_Crisp_Girl",            "hint": "中文 · 清脆少女"},
-            {"value": "Chinese (Mandarin)_Pure-hearted_Boy",      "hint": "中文 · 清澈邻家弟弟"},
-            {"value": "Chinese (Mandarin)_Soft_Girl",             "hint": "中文 · 柔和少女"},
-            # Cantonese (full catalog)
-            {"value": "Cantonese_ProfessionalHost（F)",            "hint": "粤语 · 专业女主持"},
-            {"value": "Cantonese_GentleLady",                     "hint": "粤语 · 温柔女声"},
-            {"value": "Cantonese_ProfessionalHost（M)",            "hint": "粤语 · 专业男主持"},
-            {"value": "Cantonese_PlayfulMan",                     "hint": "粤语 · 活泼男声"},
-            {"value": "Cantonese_CuteGirl",                       "hint": "粤语 · 可爱女孩"},
-            {"value": "Cantonese_KindWoman",                      "hint": "粤语 · 善良女声"},
-            # English (curated: 1F + 1M)
-            {"value": "English_Graceful_Lady",                    "hint": "英文 · Graceful Lady（女）"},
-            {"value": "English_Trustworthy_Man",                  "hint": "英文 · Trustworthy Man（男）"},
-            # Japanese (curated: 1F + 1M)
-            {"value": "Japanese_KindLady",                        "hint": "日文 · Kind Lady（女）"},
-            {"value": "Japanese_LoyalKnight",                     "hint": "日文 · Loyal Knight（男）"},
-            # Korean (curated: 1F + 1M)
-            {"value": "Korean_SweetGirl",                         "hint": "韩文 · Sweet Girl（女）"},
-            {"value": "Korean_CheerfulBoyfriend",                 "hint": "韩文 · Cheerful Boyfriend（男）"},
-        ],
-        "dashscope": [
-            {"value": "Cherry",   "hint": "芊悦 · 阳光女声"},
-            {"value": "Serena",   "hint": "苏瑶 · 温柔女声"},
-            {"value": "Chelsie",  "hint": "千雪 · 二次元少女"},
-            {"value": "Ethan",    "hint": "晨煦 · 阳光男声"},
-            {"value": "Moon",     "hint": "月白 · 率性男声"},
-            {"value": "Kai",      "hint": "凯 · 治愈男声"},
-            {"value": "Nofish",   "hint": "不吃鱼 · 设计师男声"},
-            {"value": "Bella",    "hint": "萌宝 · 小萝莉"},
-            {"value": "Bunny",    "hint": "萌小姬 · 萌系少女"},
-            {"value": "Stella",   "hint": "少女阿月 · 元气少女"},
-            {"value": "Neil",     "hint": "阿闻 · 新闻主播"},
-            {"value": "Seren",    "hint": "小婉 · 助眠女声"},
-            {"value": "Jada",     "hint": "上海话 · 阿珍"},
-            {"value": "Dylan",    "hint": "北京话 · 晓东"},
-            {"value": "Sunny",    "hint": "四川话 · 晴儿"},
-            {"value": "Eric",     "hint": "四川话 · 程川"},
-            {"value": "Rocky",    "hint": "粤语 · 阿强"},
-            {"value": "Kiki",     "hint": "粤语 · 阿清"},
-            {"value": "Peter",    "hint": "天津话 · 李彼得"},
-            {"value": "Marcus",   "hint": "陕西话 · 秦川"},
-            {"value": "Roy",      "hint": "闽南语 · 阿杰"},
-        ],
-        # 小米 MiMo 预置音色列表（mimo-v2.5-tts），文档：
-        # https://platform.xiaomimimo.com/docs/zh-CN/usage-guide/speech-synthesis-v2.5
-        "mimo": [
-            {"value": "冰糖",   "hint": "中文 · 女声 · 冰糖"},
-            {"value": "茉莉",   "hint": "中文 · 女声 · 茉莉"},
-            {"value": "苏打",   "hint": "中文 · 男声 · 苏打"},
-            {"value": "白桦",   "hint": "中文 · 男声 · 白桦"},
-            {"value": "Mia",   "hint": "英文 · 女声 · Mia"},
-            {"value": "Chloe", "hint": "英文 · 女声 · Chloe"},
-            {"value": "Milo",  "hint": "英文 · 男声 · Milo"},
-            {"value": "Dean",  "hint": "英文 · 男声 · Dean"},
-        ],
-        # Aggregating gateway: voices are scoped per engine model. The
-        # frontend picks the correct list based on the selected model so
-        # users don't see incompatible timbres for the active engine.
-        "linkai": {
-            "tts-1": [
-                "alloy", "echo", "fable", "onyx", "nova", "shimmer",
-            ],
-            "doubao": [
-                {"value": "zh_female_wanwanxiaohe_moon_bigtts",       "hint": "湾湾小何"},
-                {"value": "BV007_streaming",                          "hint": "亲切女声"},
-                {"value": "BV001_streaming",                          "hint": "通用女声"},
-                {"value": "BV002_streaming",                          "hint": "通用男声"},
-                {"value": "BV051_streaming",                          "hint": "奶气萌娃"},
-                {"value": "zh_female_linjianvhai_moon_bigtts",        "hint": "邻家女孩"},
-                {"value": "BV700_streaming",                          "hint": "灿灿"},
-                {"value": "BV019_streaming",                          "hint": "重庆小伙"},
-                {"value": "BV524_streaming",                          "hint": "日语男声"},
-                {"value": "BV021_streaming",                          "hint": "东北老铁"},
-                {"value": "BV701_streaming",                          "hint": "擎苍"},
-                {"value": "BV113_streaming",                          "hint": "甜宠少御"},
-                {"value": "BV056_streaming",                          "hint": "阳光男声"},
-                {"value": "BV213_streaming",                          "hint": "广西表哥"},
-                {"value": "BV119_streaming",                          "hint": "通用赘婿"},
-                {"value": "BV705_streaming",                          "hint": "炀炀"},
-                {"value": "BV033_streaming",                          "hint": "温柔小哥"},
-                {"value": "BV102_streaming",                          "hint": "儒雅青年"},
-                {"value": "BV522_streaming",                          "hint": "气质女生"},
-                {"value": "BV034_streaming",                          "hint": "知性姐姐 · 双语"},
-                {"value": "BV005_streaming",                          "hint": "活泼女声"},
-                {"value": "zh_female_wanqudashu_moon_bigtts",         "hint": "湾区大叔"},
-                {"value": "zh_female_daimengchuanmei_moon_bigtts",    "hint": "呆萌川妹"},
-                {"value": "zh_male_guozhoudege_moon_bigtts",          "hint": "广州德哥"},
-                {"value": "zh_male_beijingxiaoye_moon_bigtts",        "hint": "北京小爷"},
-                {"value": "zh_male_shaonianzixin_moon_bigtts",        "hint": "少年梓辛 / Brayan"},
-                {"value": "zh_female_meilinvyou_moon_bigtts",         "hint": "魅力女友"},
-                {"value": "zh_male_shenyeboke_moon_bigtts",           "hint": "深夜播客"},
-                {"value": "zh_female_sajiaonvyou_moon_bigtts",        "hint": "柔美女友"},
-                {"value": "zh_female_yuanqinvyou_moon_bigtts",        "hint": "撒娇学妹"},
-                {"value": "zh_male_haoyuxiaoge_moon_bigtts",          "hint": "浩宇小哥"},
-                {"value": "zh_male_guangxiyuanzhou_moon_bigtts",      "hint": "广西远舟"},
-                {"value": "zh_female_meituojieer_moon_bigtts",        "hint": "妹坨洁儿"},
-                {"value": "zh_male_yuzhouzixuan_moon_bigtts",         "hint": "豫州子轩"},
-                {"value": "BV115_streaming",                          "hint": "古风少御"},
-                {"value": "zh_female_gaolengyujie_moon_bigtts",       "hint": "高冷御姐"},
-                {"value": "zh_male_yuanboxiaoshu_moon_bigtts",        "hint": "渊博小叔"},
-                {"value": "zh_male_yangguangqingnian_moon_bigtts",    "hint": "阳光青年"},
-                {"value": "zh_male_aojiaobazong_moon_bigtts",         "hint": "傲娇霸总"},
-                {"value": "zh_male_jingqiangkanye_moon_bigtts",       "hint": "京腔侃爷 / Harmony"},
-                {"value": "zh_female_shuangkuaisisi_moon_bigtts",     "hint": "爽快思思 / Skye"},
-                {"value": "zh_male_wennuanahu_moon_bigtts",           "hint": "温暖阿虎 / Alvin"},
-                {"value": "multi_female_shuangkuaisisi_moon_bigtts",  "hint": "はるこ / Esmeralda"},
-                {"value": "multi_male_jingqiangkanye_moon_bigtts",    "hint": "かずね / Javier or Álvaro"},
-                {"value": "multi_female_gaolengyujie_moon_bigtts",    "hint": "あけみ"},
-                {"value": "multi_male_wanqudashu_moon_bigtts",        "hint": "ひろし / Roberto"},
-                {"value": "ICL_zh_female_bingruoshaonv_tob",          "hint": "病弱少女"},
-                {"value": "ICL_zh_female_huoponvhai_tob",             "hint": "活泼女孩"},
-                {"value": "ICL_zh_female_heainainai_tob",             "hint": "和蔼奶奶"},
-                {"value": "ICL_zh_female_linjuayi_tob",               "hint": "邻居阿姨"},
-                {"value": "zh_female_wenrouxiaoya_moon_bigtts",       "hint": "温柔小雅"},
-                {"value": "zh_female_tianmeixiaoyuan_moon_bigtts",    "hint": "甜美小源"},
-                {"value": "zh_female_qingchezizi_moon_bigtts",        "hint": "清澈梓梓"},
-                {"value": "zh_male_dongfanghaoran_moon_bigtts",       "hint": "东方浩然"},
-                {"value": "zh_male_jieshuoxiaoming_moon_bigtts",      "hint": "解说小明"},
-                {"value": "zh_female_kailangjiejie_moon_bigtts",      "hint": "开朗姐姐"},
-                {"value": "zh_male_linjiananhai_moon_bigtts",         "hint": "邻家男孩"},
-                {"value": "zh_female_tianmeiyueyue_moon_bigtts",      "hint": "甜美悦悦"},
-                {"value": "zh_female_xinlingjitang_moon_bigtts",      "hint": "心灵鸡汤"},
-            ],
-            "baidu": [
-                {"value": "baidu_0",    "hint": "度小美 · 标准女主播"},
-                {"value": "baidu_1",    "hint": "度小宇 · 亲切男声"},
-                {"value": "baidu_3",    "hint": "度逍遥 · 情感男声"},
-                {"value": "baidu_4",    "hint": "度丫丫 · 童声"},
-                {"value": "baidu_5",    "hint": "度小娇 · 成熟女主播"},
-                {"value": "baidu_5003", "hint": "度逍遥 · 情感男声"},
-                {"value": "baidu_5118", "hint": "度小鹿 · 甜美女声"},
-                {"value": "baidu_103",  "hint": "度米朵 · 可爱童声"},
-                {"value": "baidu_106",  "hint": "度博文 · 专业男主播"},
-                {"value": "baidu_110",  "hint": "度小童 · 童声主播"},
-                {"value": "baidu_111",  "hint": "度小萌 · 软萌妹子"},
-                {"value": "baidu_4003", "hint": "度逍遥 · 情感男声"},
-                {"value": "baidu_4100", "hint": "度小雯 · 活力女主播"},
-                {"value": "baidu_4103", "hint": "度米朵 · 可爱女声"},
-                {"value": "baidu_4105", "hint": "度灵儿 · 清澈女声"},
-                {"value": "baidu_4106", "hint": "度博文 · 专业男主播"},
-                {"value": "baidu_4115", "hint": "度小贤 · 电台男主播"},
-                {"value": "baidu_4117", "hint": "度小乔 · 活泼女声"},
-                {"value": "baidu_4119", "hint": "度小鹿 · 甜美女声"},
-                {"value": "baidu_4129", "hint": "度小彦 · 知识男主播"},
-                {"value": "baidu_4140", "hint": "度小新 · 专业女主播"},
-                {"value": "baidu_4143", "hint": "度清风 · 配音男声"},
-                {"value": "baidu_4144", "hint": "度姗姗 · 娱乐女声"},
-                {"value": "baidu_4149", "hint": "度星河 · 广告男声"},
-                {"value": "baidu_4206", "hint": "度博文 · 综艺男声"},
-                {"value": "baidu_4226", "hint": "南方 · 电台女主播"},
-                {"value": "baidu_4254", "hint": "度小清 · 广告女声"},
-                {"value": "baidu_4278", "hint": "度小贝 · 知识女主播"},
-            ],
-        },
-    }
     _EMBEDDING_PROVIDERS = ["openai", "dashscope", "doubao", "zhipu", "linkai", "custom"]
 
     # Embedding model catalog per provider. Mirrors the default_model in
@@ -3667,77 +3155,8 @@ class ModelsHandler:
             "provider_models": cls._VISION_PROVIDER_MODELS,
         }
 
-    @classmethod
-    def _asr_capability(cls, local_config: dict) -> dict:
-        # "Pick or empty" — when voice_to_text is unset we don't show a
-        # current selection. `suggested_provider` previews which vendor
-        # the bridge auto-picker would land on (purely a UX hint, NOT
-        # persisted). Once the user saves a vendor, we lock onto it.
-        explicit = (local_config.get("voice_to_text") or "").strip().lower()
-        suggested = ""
-        if not explicit:
-            for pid in cls._ASR_PROVIDERS:
-                meta = ConfigHandler.PROVIDER_MODELS.get(pid) or {}
-                key_field = meta.get("api_key_field")
-                if key_field and cls._is_real_key(local_config.get(key_field, "")):
-                    suggested = pid
-                    break
-        # Custom (OpenAI-compatible) vendors are selectable too — same pattern
-        # as _vision_capability: each expanded custom:<id> gets an entry.
-        providers = list(cls._ASR_PROVIDERS)
-        custom_cards = cls._custom_provider_cards(local_config)
-        if custom_cards:
-            providers.extend(c["id"] for c in custom_cards)
-        return {
-            "editable": True,
-            "current_provider": explicit,
-            "suggested_provider": suggested,
-            "current_model": (local_config.get("voice_to_text_model") or "") if explicit else "",
-            "providers": providers,
-            "provider_models": cls._ASR_PROVIDER_MODELS,
-        }
 
-    @classmethod
-    def _tts_capability(cls, local_config: dict) -> dict:
-        explicit = (local_config.get("text_to_voice") or "").strip().lower()
-        # Custom (OpenAI-compatible) vendors are selectable too; accept them
-        # (expanded custom:<id> or legacy flat "custom") as the current
-        # provider so the card shows the saved selection. Other providers
-        # outside the white-list don't drive the picker, but their underlying
-        # runtime config is preserved so bridge still routes them.
-        is_custom_id = explicit.startswith("custom:") or explicit == "custom"
-        ui_provider = explicit if (explicit in cls._TTS_PROVIDERS or is_custom_id) else ""
-        suggested = ""
-        if not ui_provider:
-            for pid in cls._TTS_PROVIDERS:
-                meta = ConfigHandler.PROVIDER_MODELS.get(pid) or {}
-                key_field = meta.get("api_key_field")
-                if key_field and cls._is_real_key(local_config.get(key_field, "")):
-                    suggested = pid
-                    break
-        providers = list(cls._TTS_PROVIDERS)
-        custom_cards = cls._custom_provider_cards(local_config)
-        if custom_cards:
-            providers.extend(c["id"] for c in custom_cards)
-        return {
-            "editable": True,
-            "current_provider": ui_provider,
-            "suggested_provider": suggested,
-            "current_model": (local_config.get("text_to_voice_model") or "") if ui_provider else "",
-            "current_voice": (local_config.get("tts_voice_id") or "") if ui_provider else "",
-            "providers": providers,
-            "provider_models": cls._TTS_PROVIDER_MODELS,
-            "provider_voices": cls._TTS_PROVIDER_VOICES,
-            "reply_mode": cls._tts_reply_mode(local_config),
-        }
 
-    @staticmethod
-    def _tts_reply_mode(local_config: dict) -> str:
-        if local_config.get("always_reply_voice", False):
-            return "always"
-        if local_config.get("voice_reply_voice", False):
-            return "voice_if_voice"
-        return "off"
 
     @classmethod
     def _embedding_capability(cls, local_config: dict) -> dict:
@@ -3984,8 +3403,6 @@ class ModelsHandler:
         return {
             "chat":      cls._chat_capability(local_config),
             "vision":    cls._vision_capability(local_config),
-            "asr":       cls._asr_capability(local_config),
-            "tts":       cls._tts_capability(local_config),
             "embedding": cls._embedding_capability(local_config),
             "image":     cls._image_capability(local_config),
             "search":    cls._search_capability(local_config),
@@ -4023,8 +3440,6 @@ class ModelsHandler:
                 return self._handle_set_active_custom_provider(data)
             if action == "set_capability":
                 return self._handle_set_capability(data)
-            if action == "set_voice_reply_mode":
-                return self._handle_set_voice_reply_mode(data)
             if action == "set_search_credential":
                 return self._handle_set_search_credential(data)
             return json.dumps({"status": "error", "message": f"unknown action: {action!r}"})
@@ -4322,10 +3737,6 @@ class ModelsHandler:
             return self._set_chat(provider_id, model)
         if capability == "vision":
             return self._set_vision(provider_id, model)
-        if capability == "asr":
-            return self._set_asr(provider_id, model)
-        if capability == "tts":
-            return self._set_tts(provider_id, model, (data.get("voice") or "").strip())
         if capability == "embedding":
             return self._set_embedding(provider_id, model)
         if capability == "image":
@@ -4525,27 +3936,6 @@ class ModelsHandler:
         else:
             cfg.pop(legacy, None)
 
-    def _handle_set_voice_reply_mode(self, data: dict) -> str:
-        # UI picker (off / voice_if_voice / always) maps to the legacy
-        # always_reply_voice + voice_reply_voice pair that chat_channel.py
-        # reads, so all channels (web/feishu/wecom/...) share the routing.
-        mode = (data.get("mode") or "").strip().lower()
-        if mode not in ("off", "voice_if_voice", "always"):
-            return json.dumps({"status": "error", "message": f"invalid mode: {mode!r}"})
-        always = (mode == "always")
-        if_voice = (mode == "voice_if_voice")
-        local_config = conf()
-        file_cfg = self._read_file_config()
-        local_config["always_reply_voice"] = always
-        local_config["voice_reply_voice"] = if_voice
-        file_cfg["always_reply_voice"] = always
-        file_cfg["voice_reply_voice"] = if_voice
-        self._write_file_config(file_cfg)
-        logger.info(
-            f"[ModelsHandler] voice reply mode set: {mode!r} "
-            f"(always_reply_voice={always}, voice_reply_voice={if_voice})"
-        )
-        return json.dumps({"status": "success", "mode": mode})
 
     def _set_simple(self, key: str, value: str) -> str:
         local_config = conf()
@@ -4554,61 +3944,10 @@ class ModelsHandler:
         file_cfg[key] = value
         self._write_file_config(file_cfg)
         logger.info(f"[ModelsHandler] {key} set: {value!r}")
-        # Hot-swap the cached voice bot so the change takes effect immediately.
-        if key in ("voice_to_text", "text_to_voice"):
-            self._refresh_voice_routing()
         return json.dumps({"status": "success", key: value})
 
-    def _set_asr(self, provider_id: str, model: str) -> str:
-        local_config = conf()
-        file_cfg = self._read_file_config()
-        local_config["voice_to_text"] = provider_id
-        file_cfg["voice_to_text"] = provider_id
-        # Only overwrite the model when one is supplied. An empty model means
-        # "keep whatever is configured" so switching provider from the console
-        # never wipes a user's hand-set voice_to_text_model (runtime falls back
-        # to the engine default via `or DEFAULT_ASR_MODEL` regardless).
-        if model:
-            local_config["voice_to_text_model"] = model
-            file_cfg["voice_to_text_model"] = model
-        self._write_file_config(file_cfg)
-        logger.info(
-            f"[ModelsHandler] asr updated: provider={provider_id!r} "
-            f"model={model!r}"
-        )
-        self._refresh_voice_routing()
-        return json.dumps({
-            "status": "success",
-            "provider": provider_id,
-            "model": local_config.get("voice_to_text_model", ""),
-        })
 
-    def _set_tts(self, provider_id: str, model: str, voice: str = "") -> str:
-        local_config = conf()
-        file_cfg = self._read_file_config()
-        local_config["text_to_voice"] = provider_id
-        file_cfg["text_to_voice"] = provider_id
-        local_config["text_to_voice_model"] = model
-        file_cfg["text_to_voice_model"] = model
-        local_config["tts_voice_id"] = voice
-        file_cfg["tts_voice_id"] = voice
-        self._write_file_config(file_cfg)
-        logger.info(
-            f"[ModelsHandler] tts updated: provider={provider_id!r} "
-            f"model={model!r} voice={voice!r}"
-        )
-        self._refresh_voice_routing()
-        return json.dumps({
-            "status": "success",
-            "provider": provider_id, "model": model, "voice": voice,
-        })
 
-    @staticmethod
-    def _refresh_voice_routing() -> None:
-        # No-op since Milestone 1.3: the Bridge no longer routes voice bots.
-        # Kept so the ASR/TTS settings handlers stay callable until 1.3b removes
-        # the console voice UI outright.
-        return
 
     def _set_embedding(self, provider_id: str, model: str) -> str:
         # Validate provider_id — mirrors _set_chat's validation pattern.
@@ -4702,110 +4041,17 @@ class ModelsHandler:
 class ChannelsHandler:
     """API for managing external channel configurations (feishu, dingtalk, etc)."""
 
+    # Trimmed to the retained channels in Milestone 1.2b. This dict is what the
+    # console's channel panel renders, so an entry for a deleted channel would
+    # offer the operator a card that cannot connect. `wcf` needs no credential
+    # fields: WeChatFerry authenticates through the WeChat client already
+    # logged in on the host.
     CHANNEL_DEFS = OrderedDict([
-        ("weixin", {
-            "label": {"zh": "微信", "en": "WeChat"},
+        ("wcf", {
+            "label": {"zh": "微信 (WeChatFerry)", "en": "WeChat (WeChatFerry)"},
             "icon": "fa-comment",
             "color": "emerald",
             "fields": [],
-        }),
-        ("feishu", {
-            "label": {"zh": "飞书", "en": "Feishu"},
-            "icon": "fa-paper-plane",
-            "color": "blue",
-            "fields": [
-                {"key": "feishu_app_id", "label": "App ID", "type": "text"},
-                {"key": "feishu_app_secret", "label": "App Secret", "type": "secret"},
-            ],
-        }),
-        ("dingtalk", {
-            "label": {"zh": "钉钉", "en": "DingTalk"},
-            "icon": "fa-comments",
-            "color": "blue",
-            "fields": [
-                {"key": "dingtalk_client_id", "label": "Client ID", "type": "text"},
-                {"key": "dingtalk_client_secret", "label": "Client Secret", "type": "secret"},
-            ],
-        }),
-        ("wecom_bot", {
-            "label": {"zh": "企微智能机器人", "en": "WeCom Bot"},
-            "icon": "fa-robot",
-            "color": "emerald",
-            "fields": [
-                {"key": "wecom_bot_id", "label": "Bot ID", "type": "text"},
-                {"key": "wecom_bot_secret", "label": "Secret", "type": "secret"},
-            ],
-        }),
-        ("qq", {
-            "label": {"zh": "QQ 机器人", "en": "QQ Bot"},
-            "icon": "fa-comment",
-            "color": "blue",
-            "fields": [
-                {"key": "qq_app_id", "label": "App ID", "type": "text"},
-                {"key": "qq_app_secret", "label": "App Secret", "type": "secret"},
-            ],
-        }),
-        ("wechatcom_app", {
-            "label": {"zh": "企微自建应用", "en": "WeCom App"},
-            "icon": "fa-building",
-            "color": "emerald",
-            "fields": [
-                {"key": "wechatcom_corp_id", "label": "Corp ID", "type": "text"},
-                {"key": "wechatcomapp_agent_id", "label": "Agent ID", "type": "text"},
-                {"key": "wechatcomapp_secret", "label": "Secret", "type": "secret"},
-                {"key": "wechatcomapp_token", "label": "Token", "type": "secret"},
-                {"key": "wechatcomapp_aes_key", "label": "AES Key", "type": "secret"},
-                {"key": "wechatcomapp_port", "label": "Port", "type": "number", "default": 9898},
-            ],
-        }),
-        ("wechat_kf", {
-            "label": {"zh": "微信客服", "en": "WeChat Customer Service"},
-            "icon": "fa-headset",
-            "color": "emerald",
-            "fields": [
-                {"key": "wechat_kf_corp_id", "label": "Corp ID", "type": "text"},
-                {"key": "wechat_kf_secret", "label": "Secret", "type": "secret"},
-                {"key": "wechat_kf_token", "label": "Token", "type": "secret"},
-                {"key": "wechat_kf_aes_key", "label": "AES Key", "type": "secret"},
-                {"key": "wechat_kf_port", "label": "Port", "type": "number", "default": 9888},
-            ],
-        }),
-        ("wechatmp", {
-            "label": {"zh": "公众号", "en": "WeChat MP"},
-            "icon": "fa-comment-dots",
-            "color": "emerald",
-            "fields": [
-                {"key": "wechatmp_app_id", "label": "App ID", "type": "text"},
-                {"key": "wechatmp_app_secret", "label": "App Secret", "type": "secret"},
-                {"key": "wechatmp_token", "label": "Token", "type": "secret"},
-                {"key": "wechatmp_aes_key", "label": "AES Key", "type": "secret"},
-                {"key": "wechatmp_port", "label": "Port", "type": "number", "default": 8080},
-            ],
-        }),
-        ("telegram", {
-            "label": {"zh": "Telegram", "en": "Telegram"},
-            "icon": "fa-paper-plane",
-            "color": "sky",
-            "fields": [
-                {"key": "telegram_token", "label": "Bot Token", "type": "secret"},
-            ],
-        }),
-        ("slack", {
-            "label": {"zh": "Slack", "en": "Slack"},
-            "icon": "fa-hashtag",
-            "color": "purple",
-            "fields": [
-                {"key": "slack_bot_token", "label": "Bot Token (xoxb-)", "type": "secret"},
-                {"key": "slack_app_token", "label": "App Token (xapp-)", "type": "secret"},
-            ],
-        }),
-        ("discord", {
-            "label": {"zh": "Discord", "en": "Discord"},
-            "icon": "fa-discord",
-            "color": "indigo",
-            "fields": [
-                {"key": "discord_token", "label": "Bot Token", "type": "secret"},
-            ],
         }),
     ])
 
@@ -4829,19 +4075,6 @@ class ChannelsHandler:
         rest = [(k, v) for k, v in cls.CHANNEL_DEFS.items() if k not in cls.EN_FIRST_CHANNELS]
         return lead + rest
 
-    @staticmethod
-    def _get_weixin_login_status() -> str:
-        try:
-            import sys
-            app_module = sys.modules.get('__main__') or sys.modules.get('app')
-            mgr = getattr(app_module, '_channel_mgr', None) if app_module else None
-            if mgr:
-                ch = mgr.get_channel("weixin")
-                if ch and hasattr(ch, 'login_status'):
-                    return ch.login_status
-        except Exception:
-            pass
-        return "unknown"
 
     @staticmethod
     def _mask_secret(value: str) -> str:
@@ -4990,8 +4223,6 @@ class ChannelsHandler:
                     "active": ch_name in active_channels,
                     "fields": fields_out,
                 }
-                if ch_name == "weixin" and ch_name in active_channels:
-                    ch_info["login_status"] = self._get_weixin_login_status()
                 channels.append(ch_info)
 
             from channel.channel_instances import MULTI_INSTANCE_READY
@@ -5128,11 +4359,6 @@ class ChannelsHandler:
         valid_keys = {f["key"] for f in ch_def["fields"]}
         secret_keys = {f["key"] for f in ch_def["fields"] if f["type"] == "secret"}
 
-        # Feishu connected via web console must use websocket (long connection) mode
-        if channel_name == "feishu":
-            updates.setdefault("feishu_event_mode", "websocket")
-            valid_keys.add("feishu_event_mode")
-
         local_config = conf()
         applied = {}
         for key, value in updates.items():
@@ -5165,15 +4391,7 @@ class ChannelsHandler:
 
         logger.info(f"[WebChannel] Channel '{channel_name}' connecting, channel_type={new_channel_type}")
 
-        # Feishu pulls its SDK bundle on first use; tell the UI so it can warn
-        # about the one-time wait rather than reporting an instant success.
         downloading = False
-        if channel_name == "feishu":
-            try:
-                from channel.feishu import lark_install
-                downloading = lark_install.needs_download()
-            except Exception as e:
-                logger.warning(f"[WebChannel] Could not check Feishu SDK state: {e}")
 
         def _do_start():
             try:
@@ -5280,21 +4498,6 @@ class ChannelsHandler:
         from channel.channel_instances import upsert_instance
 
         creds = self._clean_credentials(channel_name, updates)
-        # Weixin scans its token during the QR flow (before the instance exists),
-        # which lands in the global config. Fold it into this instance's own
-        # credentials so the instance is self-contained: it stays logged in
-        # across restarts and never depends on the transient global value.
-        if channel_name == "weixin" and not creds.get("weixin_token"):
-            token = conf().get("weixin_token", "")
-            if token:
-                creds["weixin_token"] = token
-                base_url = conf().get("weixin_base_url", "")
-                if base_url:
-                    creds["weixin_base_url"] = base_url
-                # Consume the transient QR token so the *next* Weixin instance
-                # created (a different account) does not inherit this one's
-                # token from the global config.
-                conf()["weixin_token"] = ""
         inst = upsert_instance(
             conf(),
             channel_type=channel_name,
@@ -5303,12 +4506,6 @@ class ChannelsHandler:
         )
 
         downloading = False
-        if channel_name == "feishu":
-            try:
-                from channel.feishu import lark_install
-                downloading = lark_install.needs_download()
-            except Exception as e:
-                logger.warning(f"[WebChannel] Could not check Feishu SDK state: {e}")
 
         def _do_start():
             try:
@@ -5398,352 +4595,8 @@ class ChannelsHandler:
         return json.dumps({"status": "success", "instance_id": instance_id}, ensure_ascii=False)
 
 
-class WeixinQrHandler:
-    """Handle WeChat QR code login from the web console.
-
-    GET  /api/weixin/qrlogin          → fetch a new QR code
-    POST /api/weixin/qrlogin          → poll QR status or start channel after login
-    """
-
-    _qr_state = {}
-
-    @staticmethod
-    def _qr_to_data_uri(data: str) -> str:
-        """Generate a QR code as a PNG data URI."""
-        try:
-            import qrcode as qr_lib
-            import io
-            import base64
-            qr = qr_lib.QRCode(error_correction=qr_lib.constants.ERROR_CORRECT_L, box_size=6, border=2)
-            qr.add_data(data)
-            qr.make(fit=True)
-            img = qr.make_image(fill_color="black", back_color="white")
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-            return f"data:image/png;base64,{b64}"
-        except ImportError:
-            return ""
-
-    @staticmethod
-    def _get_running_channel():
-        try:
-            import sys
-            app_module = sys.modules.get('__main__') or sys.modules.get('app')
-            mgr = getattr(app_module, '_channel_mgr', None) if app_module else None
-            if mgr:
-                return mgr.get_channel("weixin")
-        except Exception:
-            pass
-        return None
-
-    def GET(self):
-        _require_auth()
-        web.header('Content-Type', 'application/json; charset=utf-8')
-        try:
-            running_ch = self._get_running_channel()
-            if running_ch and hasattr(running_ch, '_current_qr_url') and running_ch._current_qr_url:
-                qr_image = self._qr_to_data_uri(running_ch._current_qr_url)
-                return json.dumps({
-                    "status": "success",
-                    "qrcode_url": running_ch._current_qr_url,
-                    "qr_image": qr_image,
-                    "source": "channel",
-                })
-
-            from channel.weixin.weixin_api import WeixinApi, DEFAULT_BASE_URL
-            base_url = conf().get("weixin_base_url", DEFAULT_BASE_URL)
-            api = WeixinApi(base_url=base_url)
-            qr_resp = api.fetch_qr_code()
-            qrcode = qr_resp.get("qrcode", "")
-            qrcode_url = qr_resp.get("qrcode_img_content", "")
-            if not qrcode:
-                return json.dumps({"status": "error", "message": "No QR code returned"})
-            qr_image = self._qr_to_data_uri(qrcode_url)
-            WeixinQrHandler._qr_state = {
-                "qrcode": qrcode,
-                "qrcode_url": qrcode_url,
-                "base_url": base_url,
-            }
-            return json.dumps({"status": "success", "qrcode_url": qrcode_url, "qr_image": qr_image})
-        except Exception as e:
-            logger.error(f"[WebChannel] WeixinQr GET error: {e}")
-            return json.dumps({"status": "error", "message": str(e)})
-
-    def POST(self):
-        _require_auth()
-        web.header('Content-Type', 'application/json; charset=utf-8')
-        try:
-            body = json.loads(web.data())
-            action = body.get("action", "poll")
-
-            if action == "poll":
-                return self._poll_status()
-            elif action == "refresh":
-                return self.GET()
-            else:
-                return json.dumps({"status": "error", "message": f"unknown action: {action}"})
-        except Exception as e:
-            logger.error(f"[WebChannel] WeixinQr POST error: {e}")
-            return json.dumps({"status": "error", "message": str(e)})
-
-    def _poll_status(self):
-        state = WeixinQrHandler._qr_state
-        qrcode = state.get("qrcode", "")
-        base_url = state.get("base_url", "")
-        if not qrcode:
-            return json.dumps({"status": "error", "message": "No active QR session"})
-
-        from channel.weixin.weixin_api import WeixinApi, DEFAULT_BASE_URL
-        api = WeixinApi(base_url=base_url or DEFAULT_BASE_URL)
-        try:
-            status_resp = api.poll_qr_status(qrcode, timeout=10)
-        except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)})
-
-        qr_status = status_resp.get("status", "wait")
-
-        if qr_status == "confirmed":
-            bot_token = status_resp.get("bot_token", "")
-            bot_id = status_resp.get("ilink_bot_id", "")
-            result_base_url = status_resp.get("baseurl", base_url)
-            user_id = status_resp.get("ilink_user_id", "")
-
-            if not bot_token or not bot_id:
-                return json.dumps({"status": "error", "message": "Login confirmed but missing token"})
-
-            cred_path = get_weixin_credentials_path()
-            from channel.weixin.weixin_channel import _save_credentials
-            _save_credentials(cred_path, {
-                "token": bot_token,
-                "base_url": result_base_url,
-                "bot_id": bot_id,
-                "user_id": user_id,
-            })
-            conf()["weixin_token"] = bot_token
-            conf()["weixin_base_url"] = result_base_url
-
-            WeixinQrHandler._qr_state = {}
-            logger.info(f"[WebChannel] WeChat QR login confirmed: bot_id={bot_id}")
-
-            return json.dumps({
-                "status": "success",
-                "qr_status": "confirmed",
-                "bot_id": bot_id,
-            })
-
-        if qr_status == "expired":
-            new_resp = api.fetch_qr_code()
-            new_qrcode = new_resp.get("qrcode", "")
-            new_qrcode_url = new_resp.get("qrcode_img_content", "")
-            new_qr_image = self._qr_to_data_uri(new_qrcode_url)
-            WeixinQrHandler._qr_state["qrcode"] = new_qrcode
-            WeixinQrHandler._qr_state["qrcode_url"] = new_qrcode_url
-            return json.dumps({
-                "status": "success",
-                "qr_status": "expired",
-                "qrcode_url": new_qrcode_url,
-                "qr_image": new_qr_image,
-            })
-
-        return json.dumps({"status": "success", "qr_status": qr_status})
 
 
-class FeishuRegisterHandler:
-    """飞书智能体应用一键创建（OAuth 设备授权流，基于 lark.register_app SDK）。
-
-    GET  /api/feishu/register   → 启动注册：调用 SDK 生成二维码 URL，立即返回；
-                                   后台线程继续轮询飞书侧直到用户扫码授权。
-    POST /api/feishu/register   → 轮询当前会话状态（downloading / pending / done /
-                                   error / expired）。桌面版首次启用时要先下载飞书
-                                   SDK 包，此时二维码尚不存在，改由轮询补发。
-                                   注册成功后不直接写 config，由前端再调
-                                   /api/channels {action:'connect'} 走标准启用流程。
-    """
-
-    # 进程内单例状态（{url, expire_in, status, app_id, app_secret, error, thread}）。
-    # 简单的本地自部署场景下不需要 session 隔离。
-    _state = {}
-    _lock = threading.Lock()
-
-    @staticmethod
-    def _qr_to_data_uri(data: str) -> str:
-        """复用 WeixinQrHandler 的二维码渲染。"""
-        return WeixinQrHandler._qr_to_data_uri(data)
-
-    @classmethod
-    def _reset_state(cls):
-        with cls._lock:
-            cls._state = {}
-
-    @classmethod
-    def _start_register_thread(cls):
-        """启动一次新的注册会话。如已有进行中的会话，先取消（通过 cancel_event）。"""
-        # 先取消可能存在的上一次会话，避免两个 SDK 线程并发 poll 同一个端点
-        with cls._lock:
-            old_cancel = cls._state.get("cancel_event") if cls._state else None
-            if old_cancel is not None:
-                old_cancel.set()
-            cancel_event = threading.Event()
-            cls._state = {"status": "starting", "cancel_event": cancel_event}
-
-        def _worker():
-            try:
-                # Desktop builds don't bundle lark_oapi; fetch it on demand the
-                # first time the user enables Feishu (requires network). Flag it
-                # so the modal explains the wait instead of just spinning.
-                from channel.feishu import lark_install
-                if lark_install.needs_download():
-                    with cls._lock:
-                        cls._state["status"] = "downloading"
-                lark_install.ensure(allow_install=True)
-                import lark_oapi as lark
-            except ImportError as e:
-                with cls._lock:
-                    cls._state["status"] = "error"
-                    cls._state["error"] = (
-                        "飞书 SDK 不可用，请联网后重试，"
-                        "或手动执行 pip install -U 'lark-oapi>=1.5.5'（%s）" % e
-                    )
-                return
-
-            def _on_qr(info):
-                # SDK 拿到二维码 URL 后立即回调；写入 state 让前端 GET 立刻能拿到
-                with cls._lock:
-                    cls._state["url"] = info.get("url", "")
-                    cls._state["expire_in"] = info.get("expire_in", 600)
-                    cls._state["qr_image"] = cls._qr_to_data_uri(info.get("url", ""))
-                    cls._state["status"] = "pending"
-                logger.info(f"[FeishuRegister] QR ready, expire_in={info.get('expire_in')}s")
-
-            def _on_status(info):
-                # 过滤掉 polling 心跳（每 5 秒一次，纯噪音）；
-                # 保留 slow_down / domain_switched 等真正的状态切换事件
-                status = info.get("status")
-                if status == "polling":
-                    return
-                logger.info(f"[FeishuRegister] SDK status: {info}")
-
-            try:
-                result = lark.register_app(
-                    on_qr_code=_on_qr,
-                    on_status_change=_on_status,
-                    source="cowagent",
-                    cancel_event=cancel_event,
-                )
-                with cls._lock:
-                    cls._state["status"] = "done"
-                    cls._state["app_id"] = result.get("client_id", "")
-                    cls._state["app_secret"] = result.get("client_secret", "")
-                logger.info(f"[FeishuRegister] App created: app_id={result.get('client_id')}")
-            except Exception as e:
-                err_msg = str(e)
-                err_cls = e.__class__.__name__
-                # 飞书 SDK 抛出的 AppExpiredError / AppAccessDeniedError / RegisterAppError
-                if "Expired" in err_cls:
-                    status = "expired"
-                elif "Denied" in err_cls:
-                    status = "denied"
-                elif "abort" in err_msg.lower() or "cancel" in err_msg.lower():
-                    # 被新一轮注册抢占，保持安静
-                    return
-                else:
-                    status = "error"
-                with cls._lock:
-                    # 仅当当前 state 仍属于本次 worker 时才写入，避免覆盖更新的会话
-                    if cls._state.get("cancel_event") is cancel_event:
-                        cls._state["status"] = status
-                        cls._state["error"] = err_msg
-                logger.warning(f"[FeishuRegister] Register failed ({err_cls}): {err_msg}")
-
-        threading.Thread(target=_worker, daemon=True, name="feishu-register").start()
-
-    def GET(self):
-        """启动一次新的注册会话。如果已有 pending/done 会话则覆盖。"""
-        _require_auth()
-        web.header('Content-Type', 'application/json; charset=utf-8')
-        try:
-            self._start_register_thread()
-            # 等待 SDK 拿到二维码 URL（最多 10s）。SDK 内部会马上回调 _on_qr。
-            import time as _t
-            for _ in range(100):
-                with self._lock:
-                    if self._state.get("url") or self._state.get("status") in (
-                        "downloading", "error", "expired", "denied"
-                    ):
-                        break
-                _t.sleep(0.1)
-            with self._lock:
-                if self._state.get("status") in ("error", "expired", "denied"):
-                    return json.dumps({
-                        "status": "error",
-                        "message": self._state.get("error", "register failed"),
-                    })
-                if self._state.get("status") == "downloading":
-                    # The SDK bundle is still coming down; the QR only exists
-                    # once it lands, so hand the frontend over to polling.
-                    return json.dumps({
-                        "status": "success",
-                        "register_status": "downloading",
-                    })
-                if not self._state.get("url"):
-                    return json.dumps({
-                        "status": "error",
-                        "message": "等待飞书二维码超时，请重试",
-                    })
-                return json.dumps({
-                    "status": "success",
-                    "qrcode_url": self._state["url"],
-                    "qr_image": self._state.get("qr_image", ""),
-                    "expire_in": self._state.get("expire_in", 600),
-                })
-        except Exception as e:
-            logger.error(f"[WebChannel] FeishuRegister GET error: {e}")
-            return json.dumps({"status": "error", "message": str(e)})
-
-    def POST(self):
-        """轮询注册结果。"""
-        _require_auth()
-        web.header('Content-Type', 'application/json; charset=utf-8')
-        try:
-            body = json.loads(web.data() or b"{}")
-            action = body.get("action", "poll")
-            if action != "poll":
-                return json.dumps({"status": "error", "message": f"unknown action: {action}"})
-
-            with self._lock:
-                status = self._state.get("status", "idle")
-                if status == "done":
-                    payload = {
-                        "status": "success",
-                        "register_status": "done",
-                        "app_id": self._state.get("app_id", ""),
-                        "app_secret": self._state.get("app_secret", ""),
-                    }
-                    # 一次性返回凭据后清掉，避免敏感信息长期驻留内存
-                    self._state = {}
-                    return json.dumps(payload)
-                if status in ("error", "expired", "denied"):
-                    return json.dumps({
-                        "status": "success",
-                        "register_status": status,
-                        "message": self._state.get("error", ""),
-                    })
-                if status == "downloading":
-                    return json.dumps({
-                        "status": "success",
-                        "register_status": "downloading",
-                    })
-                # pending / starting：还在等用户扫码。二维码可能是在 GET 返回
-                # "downloading" 之后才生成的，带上让前端补渲染。
-                payload = {"status": "success", "register_status": "pending"}
-                if self._state.get("url"):
-                    payload["qrcode_url"] = self._state["url"]
-                    payload["qr_image"] = self._state.get("qr_image", "")
-                return json.dumps(payload)
-        except Exception as e:
-            logger.error(f"[WebChannel] FeishuRegister POST error: {e}")
-            return json.dumps({"status": "error", "message": str(e)})
 
 
 def _request_agent_id(source) -> str:

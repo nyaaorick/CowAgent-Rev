@@ -21,7 +21,7 @@ from bridge.context import Context, ContextType
 from bridge.reply import Reply, ReplyType
 from common.log import logger
 from linkai import LinkAIClient, PushMsg
-from config import conf, pconf, plugin_config, available_setting, write_plugin_config, get_root, get_weixin_credentials_path
+from config import conf, pconf, plugin_config, available_setting, write_plugin_config, get_root
 from plugins import PluginManager
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -40,18 +40,10 @@ CHANNEL_ACTIONS = {"channel_create", "channel_update", "channel_delete"}
 # channelType -> config key mapping for app credentials.
 # secret_key may be "" for single-token channels (e.g. telegram/discord).
 # For slack, appId carries bot_token and appSecret carries app_token.
-CREDENTIAL_MAP = {
-    "feishu":            ("feishu_app_id",          "feishu_app_secret"),
-    "dingtalk":          ("dingtalk_client_id",      "dingtalk_client_secret"),
-    "wecom_bot":         ("wecom_bot_id",            "wecom_bot_secret"),
-    "qq":                ("qq_app_id",               "qq_app_secret"),
-    "wechatmp":          ("wechatmp_app_id",         "wechatmp_app_secret"),
-    "wechatmp_service":  ("wechatmp_app_id",         "wechatmp_app_secret"),
-    "wechatcom_app":     ("wechatcomapp_agent_id",   "wechatcomapp_secret"),
-    "telegram":          ("telegram_token",          ""),
-    "slack":             ("slack_bot_token",         "slack_app_token"),
-    "discord":           ("discord_token",           ""),
-}
+# Empty since Milestone 1.2: every channel this mapped was removed. The wcf
+# channel (Milestone 4.2) authenticates through the locally logged-in WeChat
+# client, so it has no config-file credentials to map either.
+CREDENTIAL_MAP = {}
 
 
 # Console user driving the request handled by the current thread. Kept in a
@@ -208,19 +200,6 @@ class CloudClient(LinkAIClient):
         # to a real bool so the evolution config parser reads it correctly.
         if config.get("self_evolution_enabled") is not None:
             local_config["self_evolution_enabled"] = self._to_bool(config.get("self_evolution_enabled"))
-
-        # Voice settings
-        reply_voice_mode = config.get("reply_voice_mode")
-        if reply_voice_mode:
-            if reply_voice_mode == "voice_reply_voice":
-                local_config["voice_reply_voice"] = True
-                local_config["always_reply_voice"] = False
-            elif reply_voice_mode == "always_reply_voice":
-                local_config["always_reply_voice"] = True
-                local_config["voice_reply_voice"] = True
-            elif reply_voice_mode == "no_reply_voice":
-                local_config["always_reply_voice"] = False
-                local_config["voice_reply_voice"] = False
 
         # Model configuration
         if config.get("model"):
@@ -423,12 +402,6 @@ class CloudClient(LinkAIClient):
 
         existing_ch = self.channel_mgr.get_channel(channel_type)
         skip_restart = existing_ch and not cred_changed
-        if skip_restart and channel_type in ("weixin", "wx"):
-            login_status = getattr(existing_ch, "login_status", "")
-            if login_status != "logged_in":
-                skip_restart = False
-                logger.info(f"[CloudClient] Channel '{channel_type}' not logged in "
-                            f"(status={login_status}), forcing restart")
         if skip_restart:
             logger.info(f"[CloudClient] Channel '{channel_type}' already running with same config, "
                         "skip restart, reporting status only")
@@ -463,12 +436,6 @@ class CloudClient(LinkAIClient):
         else:
             existing_ch = self.channel_mgr.get_channel(channel_type)
             needs_restart = cred_changed or not existing_ch
-            if not needs_restart and channel_type in ("weixin", "wx"):
-                login_status = getattr(existing_ch, "login_status", "")
-                if login_status != "logged_in":
-                    needs_restart = True
-                    logger.info(f"[CloudClient] Channel '{channel_type}' not logged in "
-                                f"(status={login_status}), forcing restart")
             if existing_ch and not needs_restart:
                 logger.info(f"[CloudClient] Channel '{channel_type}' already running with same config, "
                             "skip restart, reporting status only")
@@ -486,24 +453,10 @@ class CloudClient(LinkAIClient):
         self._remove_channel_type(local_config, channel_type)
         self._save_config_to_file(local_config)
 
-        if channel_type in ("weixin", "wx"):
-            self._remove_weixin_credentials()
-
         if self.channel_mgr:
             threading.Thread(
                 target=self._do_remove_channel, args=(channel_type,), daemon=True
             ).start()
-
-    @staticmethod
-    def _remove_weixin_credentials():
-        """Remove the weixin token credentials file so next connect triggers QR login."""
-        cred_path = get_weixin_credentials_path()
-        try:
-            if os.path.exists(cred_path):
-                os.remove(cred_path)
-                logger.info(f"[CloudClient] Removed weixin credentials: {cred_path}")
-        except Exception as e:
-            logger.warning(f"[CloudClient] Failed to remove weixin credentials: {e}")
 
     # ------------------------------------------------------------------
     # value helpers
@@ -624,13 +577,6 @@ class CloudClient(LinkAIClient):
         if not ch:
             self.send_channel_status(channel_type, "error", "channel instance not found")
             return
-
-        if channel_type in ("weixin", "wx") and hasattr(ch, "login_status"):
-            login_status = getattr(ch, "login_status", "")
-            if login_status in ("waiting_scan", "scanned", "idle"):
-                logger.info(f"[CloudClient] Channel '{channel_type}' is waiting for QR login, "
-                            "skip reporting connected")
-                return
 
         success, error = ch.wait_startup(timeout=3)
         if success:
@@ -1140,11 +1086,6 @@ def _build_config():
         "self_evolution_min_turns": local_conf.get("self_evolution_min_turns"),
         "channelType": local_conf.get("channel_type"),
     }
-
-    if local_conf.get("always_reply_voice"):
-        config["reply_voice_mode"] = "always_reply_voice"
-    elif local_conf.get("voice_reply_voice"):
-        config["reply_voice_mode"] = "voice_reply_voice"
 
     if pconf("linkai"):
         config["group_app_map"] = pconf("linkai").get("group_app_map")

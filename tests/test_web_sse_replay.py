@@ -256,7 +256,7 @@ def test_janitor_finalizes_done_then_reclaims_completed_log():
     assert "req" not in channel.sse_streams
 
 
-def _send_channel(tts_pending=False):
+def _send_channel():
     channel = _channel()
     channel.NOT_SUPPORT_REPLYTYPE = []
     channel.session_queues = {}
@@ -266,7 +266,6 @@ def _send_channel(tts_pending=False):
     channel._fetch_latest_pair_seqs = lambda *args: {
         "user_seq": 1, "bot_seq": 2
     }
-    channel._maybe_dispatch_auto_tts = lambda *args: tts_pending
     _add_stream(channel, "req")
     context = Context(kwargs={
         "request_id": "req", "agent_id": "agent", "session_id": "session"
@@ -274,17 +273,6 @@ def _send_channel(tts_pending=False):
     return channel, context
 
 
-def test_duplicate_file_does_not_close_text_stream_waiting_for_tts():
-    channel, context = _send_channel(tts_pending=True)
-    WebChannel.send(channel, Reply(ReplyType.TEXT, "answer"), context)
-    state = channel.sse_streams["req"]
-    assert state.main_done
-    assert not state.stream_complete
-
-    WebChannel.send(channel, Reply(ReplyType.FILE, "file://result.txt"), context)
-
-    assert not state.stream_complete
-    assert [item[0]["type"] for item in state.events] == ["done"]
 
 
 def test_duplicate_file_without_text_does_not_end_an_unfinished_stream():
