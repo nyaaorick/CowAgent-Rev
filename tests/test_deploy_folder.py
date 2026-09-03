@@ -22,7 +22,8 @@ def _read(name):
 
 def test_the_folder_has_everything_an_operator_needs():
     for name in ("run.cmd", "config.example.json", "check_config.py",
-                 "README.md", "logo.ico", "logo.png"):
+                 "README.md", "logo.ico", "logo.png",
+                 "enable-ssh.cmd", "enable-ssh.ps1"):
         assert os.path.isfile(os.path.join(DEPLOY, name)), f"test/{name} is missing"
 
 
@@ -80,3 +81,66 @@ def test_the_real_config_is_git_ignored():
     gitignore = io.open(os.path.join(ROOT, ".gitignore"), encoding="utf-8").read()
     assert re.search(r"^config\.json$", gitignore, re.M), \
         "config.json must stay git-ignored -- it holds a live API key"
+
+
+# ---------------------------------------------------------------------------
+# enable-ssh.cmd / .ps1 -- the remote debug channel
+# ---------------------------------------------------------------------------
+
+def test_enable_ssh_elevates_itself():
+    """Every step needs admin; without elevation it fails halfway through."""
+    cmd = _read("enable-ssh.cmd")
+    assert "net session" in cmd, "must detect whether it is already elevated"
+    assert "-Verb RunAs" in cmd, "must re-launch elevated when it is not"
+
+
+def test_enable_ssh_does_not_forward_arguments_through_elevation():
+    """An SSH key contains spaces. Passing it through cmd -> PowerShell ->
+    Start-Process quoting is fragile, and an empty -ArgumentList throws.
+    The ps1 prompts instead."""
+    assert "-ArgumentList" not in _read("enable-ssh.cmd")
+
+
+def test_enable_ssh_restricts_the_firewall_rule_to_the_private_profile():
+    """Opening port 22 on the Public profile would expose it on untrusted
+    networks (cafe wifi, hotel), which is the one thing this must never do."""
+    ps1 = _read("enable-ssh.ps1")
+    assert "-Profile Private" in ps1
+    assert "-Profile Any" not in ps1
+    assert "-Profile Public" not in ps1
+
+
+def test_enable_ssh_handles_the_administrators_authorized_keys_quirk():
+    """sshd ignores ~/.ssh/authorized_keys for accounts in the Administrators
+    group and reads only the shared file -- the usual reason key auth silently
+    falls back to a password prompt."""
+    ps1 = _read("enable-ssh.ps1")
+    assert "administrators_authorized_keys" in ps1
+    assert "IsInRole" in ps1, "must actually test group membership, not guess"
+    assert "icacls" in ps1, "sshd rejects that file if its ACL is too permissive"
+
+
+def test_enable_ssh_refuses_a_private_key():
+    """Pasting the file without .pub is an easy, and very bad, mistake."""
+    ps1 = _read("enable-ssh.ps1")
+    assert "ssh-ed25519" in ps1 and "notmatch" in ps1
+    assert "PRIVATE key" in ps1, "must warn explicitly about pasting a private key"
+
+
+def test_enable_ssh_is_idempotent():
+    """It is normal to run this twice; it must not duplicate a firewall rule
+    or an authorized key."""
+    ps1 = _read("enable-ssh.ps1")
+    assert "Get-NetFirewallRule" in ps1, "must check before creating the rule"
+    assert "$existing -contains $PublicKey" in ps1, "must check before appending the key"
+
+
+def test_enable_ssh_reports_how_to_connect():
+    ps1 = _read("enable-ssh.ps1")
+    assert "Get-NetIPAddress" in ps1
+    assert "HostName" in ps1, "should print a ready-to-paste ssh config block"
+
+
+def test_enable_ssh_is_documented_in_the_readme():
+    readme = _read("README.md")
+    assert "enable-ssh.cmd" in readme

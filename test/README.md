@@ -48,6 +48,40 @@ works. WeChat needs `"channel_type": "wcf"`, which additionally requires:
   [`ROADMAP.md`](../ROADMAP.md). Until then `run.cmd` says so rather than
   failing obscurely.
 
+## Remote debugging from another machine (optional)
+
+If you want to drive this PC from a Mac or another box on the same LAN —
+editing, running `pytest`, tailing logs — double-click **`enable-ssh.cmd`**. It
+asks for administrator rights, then:
+
+1. installs the **OpenSSH Server** Windows capability;
+2. starts `sshd` and sets it to start automatically on boot;
+3. adds an inbound firewall rule for **TCP 22 on the Private profile only**;
+4. prompts for the client's SSH **public** key and installs it in the right
+   place (see the warning below);
+5. prints the IP, username, and a ready-to-paste `~/.ssh/config` block.
+
+Safe to run twice — every step checks its own state first.
+
+> **Port 22 is opened on the Private (home LAN) profile only.** Nothing here
+> touches your router, so it is not reachable from the internet unless you
+> separately forward the port. Don't.
+
+> **Paste the `.pub` file, never the private key.** The script rejects anything
+> that is not a public key, but the file you want is `id_ed25519.pub` — the one
+> *with* the extension.
+
+**The Administrators gotcha:** if your Windows account is an administrator,
+`sshd` **ignores** `C:\Users\<you>\.ssh\authorized_keys` entirely and reads
+only `C:\ProgramData\ssh\administrators_authorized_keys`, which must also have
+a locked-down ACL. Getting this wrong is the usual reason key authentication
+"silently" falls back to asking for a password. `enable-ssh.cmd` detects your
+group membership and handles both cases, including the ACL.
+
+If the connection still refuses, the most common cause is the network adapter
+being classified **Public** — the firewall rule does not apply there. The script
+warns when it sees this and prints the one-liner to fix it.
+
 ## Files here
 
 | File | Purpose |
@@ -56,6 +90,8 @@ works. WeChat needs `"channel_type": "wcf"`, which additionally requires:
 | `config.example.json` | Config template, **API keys blank** |
 | `check_config.py` | Pre-flight validation with actionable errors |
 | `logo.ico` / `logo.png` | Icon for a desktop shortcut |
+| `enable-ssh.cmd` | Opens the remote debug channel (self-elevating) |
+| `enable-ssh.ps1` | The work behind `enable-ssh.cmd` |
 
 ## Notes
 
