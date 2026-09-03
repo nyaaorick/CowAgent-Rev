@@ -422,19 +422,6 @@ def _clear_singleton_cache(channel_name: str):
     """
     cls_map = {
         "web": "channel.web.web_channel.WebChannel",
-        "wechatmp": "channel.wechatmp.wechatmp_channel.WechatMPChannel",
-        "wechatmp_service": "channel.wechatmp.wechatmp_channel.WechatMPChannel",
-        "wechatcom_app": "channel.wechatcom.wechatcomapp_channel.WechatComAppChannel",
-        const.WECHAT_KF: "channel.wechat_kf.wechat_kf_channel.WechatKfChannel",
-        const.FEISHU: "channel.feishu.feishu_channel.FeiShuChanel",
-        const.DINGTALK: "channel.dingtalk.dingtalk_channel.DingTalkChanel",
-        const.WECOM_BOT: "channel.wecom_bot.wecom_bot_channel.WecomBotChannel",
-        const.QQ: "channel.qq.qq_channel.QQChannel",
-        const.TELEGRAM: "channel.telegram.telegram_channel.TelegramChannel",
-        const.SLACK: "channel.slack.slack_channel.SlackChannel",
-        const.DISCORD: "channel.discord.discord_channel.DiscordChannel",
-        const.WEIXIN: "channel.weixin.weixin_channel.WeixinChannel",
-        "wx": "channel.weixin.weixin_channel.WeixinChannel",
     }
     module_path = cls_map.get(channel_name)
     if not module_path:

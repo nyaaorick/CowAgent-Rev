@@ -150,60 +150,6 @@ available_setting = {
     # youdao translation api config
     "youdao_translate_app_key": "",  # youdao translation api app id
     "youdao_translate_app_secret": "",  # youdao translation api app secret
-    # wechatmp config
-    "wechatmp_token": "",  # WeChat Official Account token
-    "wechatmp_port": 8080,  # WeChat Official Account port; needs port forwarding to 80 or 443
-    "wechatmp_app_id": "",  # WeChat Official Account appID
-    "wechatmp_app_secret": "",  # WeChat Official Account appsecret
-    "wechatmp_aes_key": "",  # WeChat Official Account EncodingAESKey; required in encrypted mode
-    # wechatcom shared config
-    "wechatcom_corp_id": "",  # WeCom corp id
-    # wechatcomapp config
-    "wechatcomapp_token": "",  # WeCom app token
-    "wechatcomapp_port": 9898,  # WeCom app service port; no port forwarding needed
-    "wechatcomapp_secret": "",  # WeCom app secret
-    "wechatcomapp_agent_id": "",  # WeCom app agent_id
-    "wechatcomapp_aes_key": "",  # WeCom app aes_key
-    # WeChat Customer Service (wechat_kf) config
-    "wechat_kf_corp_id": "",  # corp_id of the company the WeChat Customer Service belongs to
-    "wechat_kf_token": "",  # WeChat Customer Service callback token
-    "wechat_kf_port": 9888,  # WeChat Customer Service callback service port
-    "wechat_kf_secret": "",  # WeChat Customer Service app secret
-    "wechat_kf_aes_key": "",  # WeChat Customer Service callback aes_key
-    "wechat_kf_cursor_path": "~/.wechat_kf_cursors.json",  # path for persisting the WeChat Customer Service sync_msg cursor
-    # Feishu config
-    "feishu_port": 80,  # Feishu bot listening port; only needed in webhook mode
-    "feishu_app_id": "",  # Feishu bot app id
-    "feishu_app_secret": "",  # Feishu bot app secret
-    "feishu_token": "",  # Feishu verification token; only needed in webhook mode
-    "feishu_event_mode": "websocket",  # Feishu event mode: webhook(HTTP server) or websocket(long connection)
-    # Feishu streaming reply (based on the official cardkit streaming-card API; requires the cardkit:card:write permission and Feishu client 7.20+)
-    "feishu_stream_reply": True,  # whether to enable streaming reply (typewriter effect); auto-downgrades to non-streaming or shows an upgrade prompt on failure/old clients
-    "feishu_detailed_card": True,  # render normal chat streaming as a detailed card (status header, thinking/tool panels, elapsed time); off keeps the plain typewriter card
-    # DingTalk config
-    "dingtalk_client_id": "",  # DingTalk bot Client ID
-    "dingtalk_client_secret": "",  # DingTalk bot Client Secret
-    "dingtalk_card_enabled": False,
-    # WeCom smart bot config (long connection mode)
-    "wecom_bot_id": "",  # WeCom smart bot BotID
-    "wecom_bot_secret": "",  # WeCom smart bot long-connection secret
-    # WeCom smart bot transport mode: "websocket" (long connection) or "webhook" (HTTP callback)
-    "wecom_bot_mode": "websocket",
-    "wecom_bot_token": "",  # webhook mode: Token configured on the bot's receive-message URL
-    "wecom_bot_encoding_aes_key": "",  # webhook mode: EncodingAESKey configured on the bot's receive-message URL
-    "wecom_bot_port": 9892,  # webhook mode: local HTTP server port for the receive-message URL
-    # Telegram config
-    "telegram_token": "",  # Bot token from @BotFather
-    "telegram_proxy": "",  # Optional HTTP/SOCKS5 proxy, e.g. http://127.0.0.1:7890 or socks5://127.0.0.1:1080 (empty falls back to env vars)
-    "telegram_group_trigger": "mention_or_reply",  # Group trigger: mention_or_reply(@ or reply, recommended) | mention_only(@ only) | all(every message)
-    "telegram_register_commands": True,  # Auto-register the BotFather command menu on startup (aligned with web slash commands)
-    # Slack config (Socket Mode, no public IP required)
-    "slack_bot_token": "",  # Bot User OAuth Token, like xoxb-...
-    "slack_app_token": "",  # App-Level Token (generated after enabling Socket Mode), like xapp-...
-    "slack_group_trigger": "mention_or_reply",  # Channel trigger: mention_or_reply(@ or reply in thread, recommended) | mention_only(@ only) | all(every message)
-    # Discord config (Gateway connection, no public IP required)
-    "discord_token": "",  # Discord Bot Token (generated on the Bot page of the Developer Portal)
-    "discord_group_trigger": "mention_or_reply",  # Channel trigger: mention_or_reply(@ or reply to bot, recommended) | mention_only(@ only) | all(every message)
     # WeChat config
     "weixin_token": "",  # bot_token obtained after WeChat login; leave empty to auto scan-login on startup
     "weixin_base_url": "https://ilinkai.weixin.qq.com",  # Weixin ilink API base URL
@@ -212,9 +158,8 @@ available_setting = {
     # custom trigger words for chatgpt commands
     "clear_memory_commands": ["#清除记忆"],  # session-reset command; must start with #
     # channel config
-    "channel_type": "",  # channel type; supports running multiple channels at once. Single: "feishu", multiple: "feishu, dingtalk" or ["feishu", "dingtalk"]. Options: web,feishu,dingtalk,wecom_bot,weixin,wechatmp,wechatmp_service,wechatcom_app,wechat_kf,telegram,slack,discord
+    "channel_type": "",  # channel type; supports running multiple channels at once. Single: "wcf", multiple: "wcf, web" or ["wcf", "web"]. Options: wcf (Milestone 4.2), web, terminal
     "web_console": True,  # whether to auto-start the Web console (on by default). Set False to disable
-    "subscribe_msg": "",  # subscribe message; supported by: wechatmp, wechatmp_service, wechatcom_app
     "debug": False,  # whether to enable debug mode; prints more logs when on
     "appdata_dir": "",  # data directory
     # plugin config
@@ -625,21 +570,6 @@ def load_config():
         "dashscope_api_key": "DASHSCOPE_API_KEY",
         "dashscope_api_base": "DASHSCOPE_API_BASE",
         # Channel credentials (used by skills that check env vars)
-        "feishu_app_id": "FEISHU_APP_ID",
-        "feishu_app_secret": "FEISHU_APP_SECRET",
-        "dingtalk_client_id": "DINGTALK_CLIENT_ID",
-        "dingtalk_client_secret": "DINGTALK_CLIENT_SECRET",
-        "wechatmp_app_id": "WECHATMP_APP_ID",
-        "wechatmp_app_secret": "WECHATMP_APP_SECRET",
-        "wechatcomapp_agent_id": "WECHATCOMAPP_AGENT_ID",
-        "wechatcomapp_secret": "WECHATCOMAPP_SECRET",
-        "wechatcom_corp_id": "WECHATCOM_CORP_ID",
-        "wechat_kf_corp_id": "WECHAT_KF_CORP_ID",
-        "wechat_kf_secret": "WECHAT_KF_SECRET",
-        "wechat_kf_token": "WECHAT_KF_TOKEN",
-        "wechat_kf_aes_key": "WECHAT_KF_AES_KEY",
-        "qq_app_id": "QQ_APP_ID",
-        "qq_app_secret": "QQ_APP_SECRET",
         "weixin_token": "WEIXIN_TOKEN",
     }
     injected = 0
@@ -910,12 +840,6 @@ def get_weixin_credentials_path(instance_id: str = ""):
         return base
     root, ext = os.path.splitext(base)
     return f"{root}.{instance_id}{ext or '.json'}"
-
-
-def subscribe_msg():
-    trigger_prefix = conf().get("single_chat_prefix", [""])[0]
-    msg = conf().get("subscribe_msg", "")
-    return msg.format(trigger_prefix=trigger_prefix)
 
 
 # global plugin config
