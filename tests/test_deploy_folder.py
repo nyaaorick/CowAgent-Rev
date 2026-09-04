@@ -144,3 +144,20 @@ def test_enable_ssh_reports_how_to_connect():
 def test_enable_ssh_is_documented_in_the_readme():
     readme = _read("README.md")
     assert "enable-ssh.cmd" in readme
+
+
+def test_enable_ssh_does_not_hide_the_install_progress():
+    """Add-WindowsCapability takes minutes. Piping it to Out-Null hides DISM's
+    progress bar and makes a working install look frozen."""
+    ps1 = _read("enable-ssh.ps1")
+    assert "Add-WindowsCapability -Online -Name $cap.Name\n" in ps1 or \
+           "Add-WindowsCapability -Online -Name $cap.Name" in ps1
+    assert "Add-WindowsCapability -Online -Name $cap.Name | Out-Null" not in ps1
+
+
+def test_enable_ssh_offers_a_windows_update_fallback():
+    """Windows Update is frequently unreachable behind a proxy/VPN, which is
+    where this step actually stalls. The script must say what to do instead."""
+    ps1 = _read("enable-ssh.ps1")
+    assert "Win32-OpenSSH" in ps1, "must point at the GitHub release"
+    assert "dism.log" in ps1, "must say how to diagnose the stall"

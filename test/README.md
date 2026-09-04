@@ -71,6 +71,14 @@ Safe to run twice — every step checks its own state first.
 > that is not a public key, but the file you want is `id_ed25519.pub` — the one
 > *with* the extension.
 
+**If it stalls on "installing OpenSSH Server":** that step pulls the package
+from Windows Update and legitimately takes several minutes. Check progress from
+a second admin PowerShell with `Get-WindowsCapability -Online -Name OpenSSH.Server*`
+(look at `State`) and `Get-Content C:\Windows\Logs\DISM\dism.log -Tail 20`. If
+Windows Update is unreachable — common behind a proxy or VPN — install OpenSSH
+directly from the [Win32-OpenSSH releases](https://github.com/PowerShell/Win32-OpenSSH/releases)
+and re-run this script; it detects the existing install and skips that step.
+
 **The Administrators gotcha:** if your Windows account is an administrator,
 `sshd` **ignores** `C:\Users\<you>\.ssh\authorized_keys` entirely and reads
 only `C:\ProgramData\ssh\administrators_authorized_keys`, which must also have

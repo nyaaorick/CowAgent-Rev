@@ -36,8 +36,29 @@ if ($null -eq $cap) {
     Install it from Settings > System > Optional features, or use Win10 1809+."
 }
 if ($cap.State -ne "Installed") {
-    Info "installing $($cap.Name) (this can take a minute)..."
-    Add-WindowsCapability -Online -Name $cap.Name | Out-Null
+    Warn "This pulls the package from Windows Update and can take SEVERAL MINUTES."
+    Warn "It is not frozen. Progress is shown below; if it stalls, see the"
+    Warn "fallback printed at the end."
+    Info "installing $($cap.Name)..."
+    # Deliberately NOT piped to Out-Null: that hides DISM's progress bar and
+    # makes a slow-but-working install look hung.
+    try {
+        Add-WindowsCapability -Online -Name $cap.Name
+    } catch {
+        Write-Host ""
+        Warn "Windows Update could not deliver the package: $($_.Exception.Message)"
+        Warn ""
+        Warn "This is common behind a proxy or VPN (Clash included), and in"
+        Warn "regions where Windows Update is slow. Install OpenSSH straight"
+        Warn "from GitHub instead, then re-run this script:"
+        Warn ""
+        Warn '  Invoke-WebRequest -Uri "https://github.com/PowerShell/Win32-OpenSSH/releases/download/v9.5.0.0p1-Beta/OpenSSH-Win64.zip" -OutFile "$env:TEMP\OpenSSH.zip"'
+        Warn '  Expand-Archive "$env:TEMP\OpenSSH.zip" -DestinationPath "C:\Program Files" -Force'
+        Warn '  & "C:\Program Files\OpenSSH-Win64\install-sshd.ps1"'
+        Warn ""
+        Warn "Diagnose the stall with:  Get-Content C:\Windows\Logs\DISM\dism.log -Tail 20"
+        Die "OpenSSH Server not installed."
+    }
     Ok "installed"
 } else {
     Ok "already installed"
