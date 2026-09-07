@@ -156,22 +156,49 @@ C:\Users\1\CowAgent-Rev\
   - Verify TCP port 10087 is in `LISTENING` state via `netstat -ano`.
   - Send a message from mobile phone to the PC WeChat account or to `filehelper`.
   - Verify `wcf.get_msg()` pulls the message off the queue with matching XML, sender wxid, and text content.
-- [ ] **4.2 Wire `WcfChannel` into CowAgent**
-  - Re-enable `channel/wcf/` adapter inheriting from `ChatChannel`:
-    - `WcfMessage` wrapper parsing `WxMsg` attributes.
-    - White-listing `filehelper` and configured test contacts.
+- [x] **4.2 Wire `WcfChannel` into CowAgent**
+  - Re-enabled `channel/wcf/` adapter inheriting from `ChatChannel`:
+    - `WcfMessage` wrapper parsing `WxMsg` attributes (text only; other types are logged and skipped).
     - Group `@mention` detection from raw XML `<atuserlist>`.
-  - Register `wcf` channel in `CowAgent/channel/channel_factory.py`.
+  - Registered `wcf` channel in `CowAgent/channel/channel_factory.py`.
+  - **Contact gating (`wcf_contact_white_list`)** — `channel/wcf/contact_filter.py`:
+    - Private chats reach the agent only when the contact is named; an entry matches a
+      **wxid** or a **display name**, because `get_contacts()` is broken on 3.9.12.56
+      (WCF-BUG-02) and a name resolves to the raw wxid on this host.
+    - **Fails closed**: an empty list answers nobody, so a truncated config cannot open
+      the operator's personal account to every contact. `"ALL_CONTACT"` opts in explicitly.
+    - Read per message, not cached at startup — spy.dll is a singleton injection
+      (WCF-BUG-03), so a restart to add a contact would be disproportionately expensive.
+    - Groups are untouched: they still gate on `group_name_white_list` in `ChatChannel`.
+  - Preflight: `test/check_config.py` refuses to start `wcf` with an empty white list.
+- [x] **4.2b Console Mirroring — WeChat conversations in the Web console**
+  > **Goal**: watch what the agent says on WeChat without opening WeChat.
+  - No new store: a WeChat turn already reaches the same SQLite conversation store,
+    tagged `channel_type='wcf'` (stamped by `ChatChannel._compose_context`, carried by
+    `agent_bridge` into `append_messages`). The conversations existed and were simply
+    never queried — the console asked for `channel_type='web'` only.
+  - `ConversationStore.list_sessions()` / `list_session_ids()` now take **one channel or
+    several** (`_channel_where`), and each listed row reports the channel it came from.
+  - `web_channel.CONSOLE_SESSION_CHANNELS = ("web", "wcf")` — the console's session list
+    shows WeChat chats beside its own, one row per contact, full history via `/api/history`.
+  - `READ_ONLY_SESSION_CHANNELS = ("wcf",)` — the composer **locks** on a WeChat chat.
+    Sending from the console would answer in the browser while the contact keeps waiting
+    in WeChat, silently splitting one thread in two.
+  - Channel panel: the `wcf` card is back, carrying the contact white list as a new
+    `list`-typed field (edited as one comma-separated line, stored as a real list).
 - [ ] **4.3 Full Cognitive Loop Execution**
   - Configure `config.json`:
     ```json
     {
-      "channel_type": "wcf",
+      "channel_type": "wcf, web",
       "model": "glm-4-flash",
+      "wcf_contact_white_list": ["filehelper"],
       "single_chat_prefix": [""],
       "group_name_white_list": ["ALL_GROUP"]
     }
     ```
+    (`"wcf, web"` runs the WeChat bot and the console together, which is what makes
+    the conversation visible at `http://127.0.0.1:9899` while it happens.)
   - Send message to `filehelper`: `"Who are you and what time is it?"`
   - Verify execution flow:
     `WeChat Msg` -> `spy.dll` -> `gMsgQueue` -> `10087` -> `WcfChannel` -> `CowAgent Engine` -> `Zhipu GLM API` -> `WcfChannel.send()` -> `10086` -> `WeChat Reply`.
@@ -192,6 +219,8 @@ C:\Users\1\CowAgent-Rev\
   - If WeChat closes or crashes, pause channel gracefully, poll for process restart, and re-initialize injection automatically.
 - [ ] **5.4 Web Console Status Indicator**
   - Expose live WCF connection status and bot wxid on the web console (`http://127.0.0.1:9899`).
+  - The conversations themselves already appear there (Milestone 4.2b); what is still
+    missing is the *connection* state — logged-in wxid, 10086/10087 health.
 
 ---
 
