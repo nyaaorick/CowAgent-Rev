@@ -83,6 +83,27 @@ def _parse_sse_cursor(*values) -> int:
     return max(cursors, default=0)
 
 
+def _is_read_only_session(session_id: str, agent_id: str = "") -> bool:
+    """Is this a conversation the console may show but not write into?
+
+    Looks the channel up in the conversation store rather than trusting the
+    caller, because session_id arrives in the request body. Unknown or brand
+    new sessions have no stored channel and stay writable -- that is every
+    conversation the console itself starts.
+    """
+    if not session_id:
+        return False
+    try:
+        from agent.memory import get_conversation_store
+        store = get_conversation_store(_get_workspace_root(agent_id=agent_id))
+        return store.get_channel_type(session_id) in READ_ONLY_SESSION_CHANNELS
+    except Exception as e:
+        # A store that cannot be read must not lock the operator out of their
+        # own console; the client-side guard still stands.
+        logger.warning(f"[WebChannel] read-only check failed for {session_id}: {e}")
+        return False
+
+
 def _join_list_field(value) -> str:
     """A list-typed config value as one editable line.
 
@@ -1299,6 +1320,25 @@ class WebChannel(ChatChannel):
                 explicit_agent_id=json_data.get("agent_id"),
             )
             prompt = json_data.get('message', '')
+
+            # A conversation the agent is holding on WeChat is displayed in the
+            # console, not continued from it: the reply would stream to this
+            # browser while the contact went on waiting in WeChat, and the
+            # console-typed turn would be written into their history. The
+            # composer is disabled client-side, but session_id arrives in the
+            # request body, so the rule has to hold here too.
+            if _is_read_only_session(session_id, resolved_agent_id):
+                logger.info(
+                    f"[WebChannel] refused a console message to read-only "
+                    f"session={session_id} (answered from its own channel)"
+                )
+                return json.dumps({
+                    "status": "error",
+                    "message": "This conversation is read-only in the console; "
+                               "reply from the channel it belongs to.",
+                    "read_only": True,
+                }, ensure_ascii=False)
+
             # Kept before any prefixing or attachment lines, so mention parsing
             # still sees what the user actually typed.
             typed_prompt = prompt

@@ -145,6 +145,75 @@ def test_wechat_conversations_are_read_only_in_the_console():
     assert set(READ_ONLY_SESSION_CHANNELS) <= set(CONSOLE_SESSION_CHANNELS)
 
 
+# --------------------------------------------- the read-only rule is enforced
+# The composer being disabled is a courtesy to whoever is looking at the page.
+# session_id arrives in the request body, so the rule has to hold on the server
+# too -- these drive the predicate that /message consults.
+def _read_only(monkeypatch, tmp, session_id):
+    """Run web_channel's read-only check against a store built in `tmp`."""
+    from channel.web import web_channel
+
+    monkeypatch.setattr(web_channel, "_get_workspace_root", lambda **kw: str(tmp))
+    return web_channel._is_read_only_session(session_id)
+
+
+def test_a_wechat_session_is_refused_server_side(monkeypatch, tmp_path):
+    from agent.memory import get_conversation_store
+    from agent.memory.conversation_store import clear_conversation_store_cache
+
+    clear_conversation_store_cache()
+    _seed(get_conversation_store(str(tmp_path)), "wxid_alice", "wcf")
+
+    assert _read_only(monkeypatch, tmp_path, "wxid_alice") is True
+
+
+def test_a_console_session_stays_writable(monkeypatch, tmp_path):
+    from agent.memory import get_conversation_store
+    from agent.memory.conversation_store import clear_conversation_store_cache
+
+    clear_conversation_store_cache()
+    _seed(get_conversation_store(str(tmp_path)), "console_chat", "web")
+
+    assert _read_only(monkeypatch, tmp_path, "console_chat") is False
+
+
+def test_a_brand_new_session_stays_writable(monkeypatch, tmp_path):
+    """Every conversation the console starts is unknown to the store until its
+    first turn lands; refusing those would break the console outright."""
+    from agent.memory.conversation_store import clear_conversation_store_cache
+
+    clear_conversation_store_cache()
+    assert _read_only(monkeypatch, tmp_path, "session_not_created_yet") is False
+
+
+def test_an_empty_session_id_is_not_treated_as_read_only(monkeypatch, tmp_path):
+    from agent.memory.conversation_store import clear_conversation_store_cache
+
+    clear_conversation_store_cache()
+    assert _read_only(monkeypatch, tmp_path, "") is False
+
+
+def test_an_unreadable_store_does_not_lock_the_operator_out(monkeypatch, tmp_path):
+    """Failing closed here would mean a broken store bricks the console; the
+    client-side guard still covers the case this is defending."""
+    from channel.web import web_channel
+
+    def boom(**kwargs):
+        raise OSError("store unavailable")
+
+    monkeypatch.setattr(web_channel, "_get_workspace_root", boom)
+    assert web_channel._is_read_only_session("wxid_alice") is False
+
+
+def test_the_store_reports_a_sessions_channel():
+    with tempfile.TemporaryDirectory() as tmp:
+        store = _store(tmp)
+        _seed(store, "wxid_alice", "wcf")
+
+        assert store.get_channel_type("wxid_alice") == "wcf"
+        assert store.get_channel_type("never_seen") == ""
+
+
 # ------------------------------------------------- the console's list-typed field
 def test_a_list_config_value_survives_the_console_round_trip():
     """The contact white list is edited as one line in the channel panel; it has

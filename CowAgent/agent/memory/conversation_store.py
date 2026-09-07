@@ -732,6 +732,25 @@ class ConversationStore:
             finally:
                 conn.close()
 
+    def get_channel_type(self, session_id: str) -> str:
+        """Which channel a session belongs to ("" when it does not exist yet).
+
+        Answers "may the console write into this conversation?" -- a chat the
+        agent is holding on WeChat is displayed there but continued from
+        WeChat. New sessions legitimately return "" and must stay writable, so
+        callers treat the empty string as "not restricted", never as a match.
+        """
+        with self._lock:
+            conn = self._connect()
+            try:
+                row = conn.execute(
+                    "SELECT channel_type FROM sessions WHERE session_id = ?",
+                    (session_id,),
+                ).fetchone()
+                return (row[0] or "") if row else ""
+            finally:
+                conn.close()
+
     def get_latest_pair_seqs(self, session_id: str) -> Dict[str, Optional[int]]:
         """Return the seq numbers of the latest visible user message and the
         latest assistant message in a session.

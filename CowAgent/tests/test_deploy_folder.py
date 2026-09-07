@@ -214,9 +214,16 @@ def test_an_unknown_channel_is_rejected(tmp_path):
     assert "feishu" in out
 
 
+@pytest.mark.skipif(
+    __import__("importlib").util.find_spec("wcferry") is None,
+    reason="wcferry is Windows-only; its absence is its own check",
+)
 def test_several_channels_are_each_checked(tmp_path):
     """channel_type runs one channel or several; "wcf, web" must still get the
-    wcf checks rather than being read as one unknown channel name."""
+    wcf checks rather than being read as one unknown channel name.
+
+    Needs wcferry present: check_config exits on the first failed wcf check,
+    and the missing-package one comes before the white-list one."""
     code, out = _check_config_with(
         tmp_path,
         _base_cfg(channel_type="wcf, web", wcf_contact_white_list=[],
