@@ -88,8 +88,10 @@ class CowBot:
             session_id = msg.roomid if is_group else msg.sender
             talker_wxid = msg.sender
 
-            # 1. Check Whitelist (Default-Deny)
-            if not self.config.is_allowed(session_id):
+            # 1. Check Whitelist (Default-Deny). is_group must be passed:
+            #    a room is authorised against allowed_rooms, a contact
+            #    against allowed_wxids.
+            if not self.config.is_allowed(session_id, is_group):
                 logger.debug(f"[Whitelist] Ignored message from non-whitelisted: {session_id}")
                 return
 
@@ -115,6 +117,12 @@ class CowBot:
                 if "@" in content:
                     clean_content = content.split("\u2005")[-1].strip() or content
                 content = clean_content
+            else:
+                # Private chat: check if auto-reply is enabled (allows human takeover / observe-only mode)
+                if not self.config.get_session_auto_reply(session_id):
+                    logger.info(f"[Private] Auto-reply disabled for {peer_name} ({session_id}); observing only")
+                    self.memory.add_user_message(session_id, content)
+                    return
 
             logger.info(f"[Inbound] From {peer_name} ({session_id}): {content}")
 
@@ -189,12 +197,16 @@ class CowBot:
         """Emit completed conversation turn for real-time web monitoring."""
         if self.on_turn_completed:
             try:
+                # SessionMemoryManager records the wall-clock stamp under
+                # "time"; reading "timestamp" here always yielded 0 and the
+                # console rendered every turn at the epoch.
+                history = self.memory.get_history(session_id)
                 turn_data = {
                     "session_id": session_id,
                     "peer_name": peer_name,
                     "user_msg": user_msg,
                     "bot_reply": bot_reply,
-                    "timestamp": self.memory.get_history(session_id)[-1].get("timestamp", 0) if self.memory.get_history(session_id) else 0,
+                    "time": history[-1].get("time", 0.0) if history else 0.0,
                 }
                 self.on_turn_completed(turn_data)
             except Exception as e:
