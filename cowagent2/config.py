@@ -1,17 +1,28 @@
 # -*- coding: utf-8 -*-
 """
-CowAgent 2 配置管理器
-=====================
-特性:
-  1. 自动复用 CowAgent/config.json 中的 Zhipu AI / GLM 配置与密钥，零重复输入；
-  2. 独立管理 cowagent2/data/whitelist.json 白名单规则；
-  3. 独立管理 cowagent2/data/contacts_cache.json 联系人/群聊绑定缓存。
+cowagent2.config
+~~~~~~~~~~~~~~~~
+Configuration manager for CowAgent 2.
+
+Responsibilities:
+  1. Reuse the Zhipu AI / GLM credentials and model parameters already present
+     in ``CowAgent/config.json`` so the operator never re-enters them.
+  2. Own the access-control whitelist in ``cowagent2/data/whitelist.json``.
+  3. Own the contact / chatroom binding cache in
+     ``cowagent2/data/contacts_cache.json``.
+
+Access control follows the rule established by CowAgent 1's
+``channel/wcf/contact_filter.py``: an empty or malformed allow list must mean
+"nobody", so a truncated config fails closed rather than opening the bot up to
+every contact.
 """
 
-import os
+from __future__ import annotations
+
 import json
 import logging
-from typing import Dict, Any, List, Set
+import os
+from typing import Any, Dict, List, Optional, Set
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 V2_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -20,56 +31,83 @@ LEGACY_CONFIG_PATH = os.path.join(BASE_DIR, "CowAgent", "config.json")
 WHITELIST_PATH = os.path.join(DATA_DIR, "whitelist.json")
 CONTACTS_CACHE_PATH = os.path.join(DATA_DIR, "contacts_cache.json")
 
+# The marker WeChat appends to every group id. A session id carrying it
+# addresses a chatroom; anything else is a one-to-one contact.
+CHATROOM_SUFFIX = "@chatroom"
+
+# ROADMAP "Model Selection Policy": glm-4.7-flash is banned (recurrent HTTP 429
+# and empty reasoning tokens), so any 4.7 variant is rewritten to the baseline.
+DEFAULT_MODEL = "glm-4-flash"
+BANNED_MODEL_MARKER = "4.7"
+
+DEFAULT_WEB_PORT = 9900
+
 os.makedirs(DATA_DIR, exist_ok=True)
-logger = logging.getLogger("CowAgent2.Config")
+logger = logging.getLogger("cowagent2.config")
 
 
 class Config:
-    def __init__(self):
+    """Runtime configuration and access-control state for CowAgent 2."""
+
+    def __init__(self, whitelist_path: str = WHITELIST_PATH):
+        self.whitelist_path = whitelist_path
         self.legacy_config: Dict[str, Any] = {}
         self.whitelist: Dict[str, Any] = {
-            "enabled": True,             # 是否开启白名单模式（默认开启）
-            "allowed_wxids": ["filehelper"],  # 允许对话的个人 wxid（默认允许文件传输助手）
-            "allowed_rooms": []          # 允许对话的群聊 roomid
+            "enabled": True,                  # Default-deny mode is on
+            "allowed_wxids": ["filehelper"],  # File Transfer Assistant is safe by default
+            "allowed_rooms": [],              # Chatroom ids allowed to converse
+            "auto_reply_sessions": [],        # Sessions replying without an @mention
         }
         self.load_legacy_config()
         self.load_whitelist()
 
-    def load_legacy_config(self):
-        """读取并复用 CowAgent/config.json"""
-        if os.path.exists(LEGACY_CONFIG_PATH):
-            try:
-                with open(LEGACY_CONFIG_PATH, "r", encoding="utf-8") as f:
-                    self.legacy_config = json.load(f)
-                logger.info(f"成功复用 CowAgent 基础配置: {LEGACY_CONFIG_PATH}")
-            except Exception as e:
-                logger.warning(f"读取 CowAgent 配置失败: {e}，将使用默认参数")
-        else:
-            logger.warning(f"未找到 CowAgent 配置文件: {LEGACY_CONFIG_PATH}")
+    # ------------------------------------------------------------------
+    # CowAgent 1 configuration reuse
+    # ------------------------------------------------------------------
+    def load_legacy_config(self) -> None:
+        """Load and reuse ``CowAgent/config.json``."""
+        if not os.path.exists(LEGACY_CONFIG_PATH):
+            logger.warning(f"CowAgent config not found: {LEGACY_CONFIG_PATH}")
+            return
+        try:
+            with open(LEGACY_CONFIG_PATH, "r", encoding="utf-8") as f:
+                self.legacy_config = json.load(f)
+            logger.info(f"Reusing CowAgent base configuration: {LEGACY_CONFIG_PATH}")
+        except Exception as e:
+            logger.warning(f"Failed to read CowAgent config: {e}; using defaults")
 
-    # LLM 相关参数
+    # ------------------------------------------------------------------
+    # LLM parameters
+    # ------------------------------------------------------------------
     @property
     def api_key(self) -> str:
         return self.legacy_config.get("zhipu_ai_api_key", "")
 
     @property
     def api_base(self) -> str:
-        return self.legacy_config.get("zhipu_ai_api_base", "https://open.bigmodel.cn/api/paas/v4")
+        return self.legacy_config.get(
+            "zhipu_ai_api_base", "https://open.bigmodel.cn/api/paas/v4"
+        )
 
     @property
     def model(self) -> str:
-        m = self.legacy_config.get("model", "glm-4-flash")
-        # 强制拦截 glm-4.7-flash，保证使用 glm-4-flash (ROADMAP 规定)
-        if "4.7" in m:
-            return "glm-4-flash"
-        return m or "glm-4-flash"
+        configured = self.legacy_config.get("model", DEFAULT_MODEL)
+        if configured and BANNED_MODEL_MARKER in configured:
+            return DEFAULT_MODEL
+        return configured or DEFAULT_MODEL
 
     @property
     def system_prompt(self) -> str:
         return self.legacy_config.get(
             "character_desc",
-            "你是基于 WeChatFerry 运行的智能微信助手 CowAgent 2。回答简洁、准确、友好、有帮助。"
+            "You are a real person chatting on WeChat. Keep replies short, "
+            "warm and natural.",
         )
+
+    @property
+    def system_prompt_template(self) -> str:
+        """Alias kept for callers that read the persona as a prompt template."""
+        return self.system_prompt
 
     @property
     def temperature(self) -> float:
@@ -81,78 +119,121 @@ class Config:
 
     @property
     def web_port(self) -> int:
-        return int(self.legacy_config.get("cowagent2_web_port", 9900))
+        return int(self.legacy_config.get("cowagent2_web_port", DEFAULT_WEB_PORT))
 
-    # 白名单管理
-    def load_whitelist(self):
-        """从 data/whitelist.json 加载白名单"""
-        if os.path.exists(WHITELIST_PATH):
-            try:
-                with open(WHITELIST_PATH, "r", encoding="utf-8") as f:
-                    self.whitelist = json.load(f)
-            except Exception as e:
-                logger.error(f"读取白名单失败: {e}")
-                self.save_whitelist()
-        else:
-            self.save_whitelist()
+    @property
+    def debug_sql_enabled(self) -> bool:
+        """Whether the console exposes the raw SQL inspection endpoint.
 
-    def save_whitelist(self):
-        """持久化白名单到 data/whitelist.json"""
-        try:
-            with open(WHITELIST_PATH, "w", encoding="utf-8") as f:
-                json.dump(self.whitelist, f, ensure_ascii=False, indent=2)
-            logger.info("白名单已更新并持久化")
-        except Exception as e:
-            logger.error(f"保存白名单失败: {e}")
-
-    def is_allowed(self, wxid: str, roomid: str = "") -> bool:
-        """核心鉴权判断：检查指定会话是否在白名单中允许对话"""
-        if not self.whitelist.get("enabled", True):
-            return True  # 若关闭白名单模式，则全放行
-
-        allowed_wxids: Set[str] = set(self.whitelist.get("allowed_wxids", []))
-        allowed_rooms: Set[str] = set(self.whitelist.get("allowed_rooms", []))
-
-        # 群聊消息判断：必须群聊在白名单中
-        if roomid:
-            return roomid in allowed_rooms
-
-        # 私聊消息判断：必须联系人在白名单中
-        return wxid in allowed_wxids
-
-    def toggle_whitelist(self, target_id: str, is_group: bool, enable: bool) -> bool:
-        """切换某联系人或群聊的白名单状态"""
-        key = "allowed_rooms" if is_group else "allowed_wxids"
-        current_list = self.whitelist.get(key, [])
-
-        if enable and target_id not in current_list:
-            current_list.append(target_id)
-        elif not enable and target_id in current_list:
-            current_list.remove(target_id)
-
-        self.whitelist[key] = current_list
-        self.save_whitelist()
-        return True
+        Off by default: that endpoint reads the operator's entire WeChat
+        message database, and the console has no authentication of its own.
+        """
+        return bool(self.legacy_config.get("cowagent2_debug_sql", False))
 
     def get_zhipu_api_key(self) -> str:
         return self.api_key
 
-    @property
-    def system_prompt_template(self) -> str:
-        return self.system_prompt
+    # ------------------------------------------------------------------
+    # Whitelist persistence
+    # ------------------------------------------------------------------
+    def load_whitelist(self) -> None:
+        """Load the whitelist from disk, writing defaults on first run."""
+        if not os.path.exists(self.whitelist_path):
+            self.save_whitelist()
+            return
+        try:
+            with open(self.whitelist_path, "r", encoding="utf-8") as f:
+                self.whitelist = json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to read whitelist, restoring defaults: {e}")
+            self.save_whitelist()
 
+    def save_whitelist(self) -> None:
+        """Persist the whitelist to disk."""
+        try:
+            with open(self.whitelist_path, "w", encoding="utf-8") as f:
+                json.dump(self.whitelist, f, ensure_ascii=False, indent=2)
+            logger.info("Whitelist updated and persisted")
+        except Exception as e:
+            logger.error(f"Failed to save whitelist: {e}")
+
+    # ------------------------------------------------------------------
+    # Access control
+    # ------------------------------------------------------------------
+    @staticmethod
+    def is_group_session(session_id: str) -> bool:
+        """True when a session id addresses a chatroom rather than a contact."""
+        return bool(session_id) and session_id.endswith(CHATROOM_SUFFIX)
+
+    def is_allowed(self, session_id: str, is_group: Optional[bool] = None) -> bool:
+        """Whether this session may reach the bot.
+
+        ``session_id`` is the reply target: a ``wxid`` for a private chat and a
+        ``roomid`` for a group, matching how the bot and the console address a
+        conversation everywhere else.
+
+        ``is_group`` selects which list is consulted, and is inferred from the
+        ``@chatroom`` suffix when omitted. The inference is what makes a
+        single-argument call safe: the previous ``(wxid, roomid)`` form checked
+        rooms against ``allowed_wxids`` whenever a caller passed only the
+        session id, so a group the operator had explicitly enabled in the
+        console still never received a reply.
+        """
+        if not session_id:
+            return False
+        if not self.whitelist.get("enabled", True):
+            return True
+
+        if is_group is None:
+            is_group = self.is_group_session(session_id)
+
+        key = "allowed_rooms" if is_group else "allowed_wxids"
+        allowed: Set[str] = set(self._entries(key))
+        return session_id in allowed
+
+    def _entries(self, key: str) -> List[str]:
+        """Non-empty string entries for a whitelist key.
+
+        Non-string entries are dropped rather than coerced: stringifying a JSON
+        ``null`` would create the entry ``"None"``, and since a contact chooses
+        their own display name, a malformed list must only ever narrow this
+        gate, never widen it.
+        """
+        raw = self.whitelist.get(key, [])
+        if not isinstance(raw, (list, tuple, set)):
+            return []
+        return [item.strip() for item in raw if isinstance(item, str) and item.strip()]
+
+    def toggle_whitelist(self, target_id: str, is_group: bool, enable: bool) -> bool:
+        """Add or remove a contact / chatroom from the whitelist."""
+        if not target_id:
+            return False
+        key = "allowed_rooms" if is_group else "allowed_wxids"
+        current = self._entries(key)
+
+        if enable and target_id not in current:
+            current.append(target_id)
+        elif not enable and target_id in current:
+            current.remove(target_id)
+
+        self.whitelist[key] = current
+        self.save_whitelist()
+        return True
+
+    # ------------------------------------------------------------------
+    # Unconditional auto-reply (skips the group @mention requirement)
+    # ------------------------------------------------------------------
     def get_session_auto_reply(self, session_id: str) -> bool:
-        """Check if group or contact has auto-reply unconditionally enabled."""
-        auto_replies = self.whitelist.get("auto_reply_sessions", [])
-        return session_id in auto_replies
+        """Whether this session replies without needing an @mention."""
+        return session_id in set(self._entries("auto_reply_sessions"))
 
     def set_session_auto_reply(self, session_id: str, enable: bool) -> None:
-        auto_replies = set(self.whitelist.get("auto_reply_sessions", []))
+        sessions = set(self._entries("auto_reply_sessions"))
         if enable:
-            auto_replies.add(session_id)
+            sessions.add(session_id)
         else:
-            auto_replies.discard(session_id)
-        self.whitelist["auto_reply_sessions"] = list(auto_replies)
+            sessions.discard(session_id)
+        self.whitelist["auto_reply_sessions"] = sorted(sessions)
         self.save_whitelist()
 
 
@@ -160,5 +241,5 @@ cfg = Config()
 
 
 def get_config() -> Config:
-    """Singleton getter for CowAgent 2 configuration."""
+    """Singleton getter for the CowAgent 2 configuration."""
     return cfg

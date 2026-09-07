@@ -61,9 +61,9 @@ class CowAgent2Application:
         self.bot.set_event_loop(self._loop)
 
         print("\n" + "=" * 60)
-        print("  🐮 CowAgent 2 — 极简微信智能体系统 (WCF 3.9.12.56)")
-        print(f"  🌐 控制台地址: http://127.0.0.1:{self.config.web_port}")
-        print(f"  🧠 对话模型: {self.config.model} (真人拟态 + 严格记忆隔离)")
+        print("  🐮 CowAgent 2 — Minimalist WeChat Agent (WCF 3.9.12.56)")
+        print(f"  🌐 Console:  http://127.0.0.1:{self.config.web_port}")
+        print(f"  🧠 Model:    {self.config.model} (human simulation + isolated memory)")
         print("=" * 60 + "\n")
 
         # 1. Start Web Server first so dashboard is immediately accessible
@@ -83,17 +83,20 @@ class CowAgent2Application:
     def _try_connect_wcf(self) -> bool:
         """Attempt passive connection to WeChat."""
         if not WcfGateway.is_wechat_process_running():
-            logger.info("WeChat.exe 未运行，控制台已启动，等待用户手动打开并登录微信...")
+            logger.info(
+                "WeChat.exe is not running. The console is up; waiting for the "
+                "operator to start and log into WeChat manually."
+            )
             return False
 
         success = self.gateway.connect()
         if success:
-            logger.info("WCF 网关初始化成功，开始扫描可用联系人与群聊...")
+            logger.info("WCF gateway ready; scanning contacts and chatrooms...")
             self.scanner.wcf_client = self.gateway.wcf
             contacts = self.scanner.scan()
-            logger.info(f"首轮扫描完成，共索引 {len(contacts)} 个联系人与群聊。")
+            logger.info(f"Initial scan complete: {len(contacts)} contacts and chatrooms indexed.")
         else:
-            logger.warning("未能连接到 WCF，请确认微信已登录并在运行。")
+            logger.warning("Could not connect to WCF. Confirm WeChat is running and logged in.")
         return success
 
     async def _background_health_monitor(self) -> None:
@@ -103,7 +106,7 @@ class CowAgent2Application:
                 await asyncio.sleep(8)
                 if not self.gateway.is_running or not self.gateway.is_login():
                     if WcfGateway.is_wechat_process_running():
-                        logger.info("检测到 WeChat 正在运行，尝试连接 WCF 网关...")
+                        logger.info("WeChat detected; attempting to connect the WCF gateway...")
                         self._try_connect_wcf()
             except asyncio.CancelledError:
                 break
@@ -112,18 +115,18 @@ class CowAgent2Application:
 
     async def stop(self) -> None:
         """Graceful shutdown."""
-        logger.info("正在停止 CowAgent 2 服务...")
+        logger.info("Stopping CowAgent 2 services...")
         self.is_running = False
         await self.web_server.stop()
         self.gateway.close()
-        logger.info("CowAgent 2 服务已安全停止。")
+        logger.info("CowAgent 2 services stopped cleanly.")
 
 
 async def main():
     app = CowAgent2Application()
 
     def _handle_signal(*_):
-        logger.info("收到中断信号，开始优雅退出...")
+        logger.info("Interrupt received; shutting down gracefully...")
         asyncio.create_task(app.stop())
 
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -146,5 +149,5 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("程序已被用户手动终止。")
+        logger.info("Terminated by the operator.")
 

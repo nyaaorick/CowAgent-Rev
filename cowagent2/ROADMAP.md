@@ -1,101 +1,360 @@
-# CowAgent 2 — 独立技术路线图与架构全景 (Dedicated Roadmap)
+# CowAgent 2 — Dedicated Roadmap
 
-## 一、项目愿景与定位
+> Scope: the `cowagent2/` subsystem only. The workspace-wide authority is
+> [`../ROADMAP.md`](../ROADMAP.md); where the two disagree, the workspace
+> roadmap wins.
 
-**CowAgent 2 (`cowagent2/`)** 是基于 WeChatFerry (WCF) 与原生 Windows 11 环境从零重构的极简主义个人微信智能机器人。
-与庞大多渠道的 CowAgent 1 形成对比，CowAgent 2 专注于**极致轻量、零干扰、纯净上下文隔离与高逼真真人拟态**，旨在通过实践检验与 CowAgent 1 的效果优劣。
+## 1. Vision
 
----
+CowAgent 2 is a minimalist personal WeChat agent rebuilt from zero on
+WeChatFerry and native Windows 11. Against the large multi-channel CowAgent 1
+it optimises for a different set of properties — minimum weight, zero
+interference with the operator's own account, clean context isolation, and
+convincing human simulation — so the two can be compared head to head on the
+same host.
 
-## 二、核心设计原则 (Core Directives)
-
-1. **极简主义与纯粹 WCF 绑定**：
-   摒弃所有无关通道适配器与复杂继承链，专为 WeChat 3.9.12.56 + Windows 提供最健壮的单例运行态。
-2. **严苛的会话记忆隔离 (Memory Isolation)**：
-   每个 `wxid`（好友私聊）与 `roomid`（群聊）拥有各自独立、密封的对话上下文与滑动窗口，杜绝不同好友或群聊之间串话、记忆泄露。
-3. **全字段会话标识与绑定 (`wxid - 微信号 - 显示名称`)**：
-   从微信底层 `MicroMsg.db` 直接提取并精确绑定系统唯一标识（WXID）、个性微信号（Alias）以及好友备注/真实昵称，三位一体。
-5. **白名单安全准入 (Default-Deny)**：
-   默认拒绝任何未授权好友的对话请求，只有在 Web 控制台显式勾选准入与自动回复的会话方可触发 AI 回复。
-6. **Localhost 独立控制台 (127.0.0.1:9900)**：
-   自带现代化本地管理看板，支持毫秒级联系人过滤、白名单实时切换、会话查看与 SSE 实时聊天监听（只读监听模式，保护主线程）。
-7. **严格复用 CowAgent 1 核心通信实现 (Core Reuse Directive)**：
-   凡涉及 WCF 底层通信能力（发信 `send_text`、参数规范 `(msg, receiver, aters)`、返回状态码 `status == 0` 强校验、`is_login` 检测等），必须以 `CowAgent/channel/wcf/wcf_channel.py` 已经历实机考验的成熟实现为权威基准，优先直接复用，严禁无依据自造形参或破坏生命周期闭环。
+The destination is a **digital twin of the account owner**: an agent that
+carries one continuously consolidated picture of who the owner is across every
+conversation, while keeping a separate, private record for each contact.
 
 ---
 
-## 三、里程碑演进与完成状态
+## 2. Core directives
+
+1. **Minimalism and pure WCF binding.** No channel adapters, no inheritance
+   chains. One robust singleton runtime for WeChat 3.9.12.56 on Windows.
+2. **Strict session isolation.** Every `wxid` and every `roomid` owns a sealed
+   context and sliding window. Nothing crosses between contacts or rooms.
+3. **Three-field session identity.** Bind `wxid` (system id), `Alias` (the
+   user-chosen WeChat ID) and `Remark`/`NickName` (display name) from
+   `MicroMsg.db`.
+4. **Default-deny access control.** Unauthorised contacts are dropped
+   silently. An empty or malformed allow list means nobody.
+5. **Localhost console on 127.0.0.1:9900.** Contact filtering, live whitelist
+   toggles, session inspection, and read-only SSE chat monitoring.
+6. **Reuse CowAgent 1 for anything proven.** Where CowAgent 1 has an
+   implementation already validated on real hardware — WCF transport
+   (`send_text(msg, receiver, aters)`, `status == 0`, `is_login()`), contact
+   filtering semantics, web-console auth, the memory subsystem — port it
+   rather than inventing a parallel one. Section 6 tracks this ledger.
+7. **English throughout the codebase.** Comments, docstrings, log messages and
+   documentation are English. Chinese remains only where it *is* the product:
+   the persona prompt, WeChat-facing reply text, the `#清除记忆` command, and
+   the regexes that strip Chinese model boilerplate.
+
+---
+
+## 3. Status
 
 ```
-Phase 1: 极简架构与核心突破 (已全部完成 100%)
-  ├─ [x] M1. 项目脚手架与 CowAgent 1 配置无缝复用 (config.py, app.py)
-  ├─ [x] M2. WCF 底层修复与 6,000+ 联系人秒级全量扫描 (spy.dll 0x38 补丁, scanner.py)
-  ├─ [x] M3. 密封式独立会话记忆引擎与命令重置 (memory.py)
-  ├─ [x] M4. 真人拟态引擎与非机械化延迟策略 (human_simulator.py)
-  └─ [x] M5. Localhost 现代化控制台与 SSE 实时监听 (web_server.py, static/index.html)
+Phase 1: Minimalist architecture and core breakthroughs        [COMPLETE]
+  ├─ [x] M1. Scaffold and seamless CowAgent 1 config reuse
+  ├─ [x] M2. WCF repair + sub-second full contact scan
+  ├─ [x] M3. Sealed per-session memory engine and reset command
+  ├─ [x] M4. Human-simulation engine and non-mechanical pacing
+  └─ [x] M5. Localhost console with SSE live monitoring
 
-Phase 2: 交互体验与拟真度深化 (正在进行 / 下一阶段)
-  ├─ [ ] M6. 自然多句分段发送 (Multi-message chunking，模拟微信连续发送2-3条短句)
-  ├─ [ ] M7. 表情包与多模态支持 (接收图片并调用视觉模型、自然回复表情)
-  ├─ [ ] M8. 进程守护与异常自动恢复 (Watchdog & Heartbeat reconnect)
-  └─ [ ] M9. CowAgent 1 vs CowAgent 2 效果横向综合评测 (A/B Testing)
+Phase 2: Correctness, standardisation and durable memory       [IN PROGRESS]
+  ├─ [x] M6. Code review remediation and English standardisation
+  ├─ [ ] M7. Memory system port — global + per-contact memory
+  ├─ [ ] M8. Interaction depth (message splitting, multimodal, presence)
+  └─ [ ] M9. Hardening (watchdog, console auth, UI translation)
+
+Phase 3: Evaluation                                            [PLANNED]
+  └─ [ ] M10. CowAgent 1 vs CowAgent 2 A/B assessment
 ```
 
 ---
 
-## 四、详细里程碑规划
+## 4. Completed milestones
 
-### 【已完成】Milestone 1: 极简核心与无缝配置复用
-- [x] **1.1 独立轻量脚手架**：建立 `cowagent2/` 独立目录体系，零依赖冗余包。
-- [x] **1.2 配置即开即用**：透明复用 `CowAgent/config.json` 中的 GLM-4-flash 密钥、Base URL 与模型参数。
-- [x] **1.3 单例防卡死保护**：强制使用 Release 版本 `spy.dll` (`debug=False`)，启动前自动清理 `.wcf.lock`，防止内存破坏崩溃。
+### M1 — Minimal core and seamless config reuse
+- [x] **1.1** Independent `cowagent2/` package with no redundant dependencies.
+- [x] **1.2** Transparent reuse of the GLM key, base URL and model parameters
+  from `CowAgent/config.json`.
+- [x] **1.3** Anti-wedge singleton: Release `spy.dll` via `debug=False`, stale
+  `.wcf.lock` cleared at startup, `wcferry`'s `atexit` cleanup unregistered so
+  a restart cannot unhook WeChat.
 
-### 【已完成】Milestone 2: WCF 底层破解与全量联系人解析
-- [x] **2.1 WeChat 3.9.12.56 底层适配**：
-  - 成功逆向并修复 `AccountStorageMgr` 偏移量变动（`0x34` -> `0x38`）；
-  - 在 `.venv/Lib/site-packages/wcferry/spy.dll`（偏移 `0x20dd4`）持久化写入 `0x38` 补丁，彻底解锁 `MicroMsg.db`。
-- [x] **2.2 毫秒级极速全量扫描**：
-  - 重构 `scanner.py` 为全量内存批处理，0.8 秒完成 6,476 个联系人与群聊的提取与索引。
-- [x] **2.3 三元字段精确绑定**：
-  - 完整呈现 `wxid`（系统唯一标识）+ `微信号`（Alias）+ `显示名称/备注名`（Remark & NickName）。
+### M2 — WCF repair and full contact resolution
+- [x] **2.1** Reversed and patched the `AccountStorageMgr` offset change
+  (`0x34` → `0x38`) at file offset `0x20dd4` in `wcferry/spy.dll`, unlocking
+  `MicroMsg.db`.
+- [x] **2.2** Rewrote `scanner.py` as a batched in-memory scan: 6,476 contacts
+  and rooms indexed in ~0.8 s, one cache write per scan.
+- [x] **2.3** Three-field binding: `wxid` + `Alias` + `Remark`/`NickName`.
 
-### 【已完成】Milestone 3: 密封式会话记忆隔离
-- [x] **3.1 独立上下文容器**：每个好友 `wxid` 和每个群聊 `roomid` 拥有专属 `SessionContext`。
-- [x] **3.2 滑动窗口修剪**：自动维护历史消息在安全 Token 预算内，防止长对话上下文溢出。
-- [x] **3.3 作用域安全重置**：支持在对话中发送 `#清除记忆`，仅清空该用户当前会话，绝对不影响其他会话。
+### M3 — Sealed session memory
+- [x] **3.1** Independent context container per `wxid` and per `roomid`.
+- [x] **3.2** Sliding-window trimming inside the token budget.
+- [x] **3.3** Scoped reset (`#清除记忆`) affecting only the calling session.
 
-### 【已完成】Milestone 4: 真人拟态沟通引擎
-- [x] **4.1 人类语言风格系统 Prompt**：剔除“作为 AI”、“很高兴为您服务”等机械陈词，以自然亲和的人类朋友口吻交谈。
-- [x] **4.2 动态阅读与打字延时**：根据收发字符长度动态计算合理人类延时（阅读 0.6s–2.5s，打字 1.0s–5.0s）。
-- [x] **4.3 净化过滤器**：自动剥离模型偶然输出的“回答：”、“助手：”等机器前缀。
+### M4 — Human-simulation engine
+- [x] **4.1** Persona prompt banning assistant disclosures and service-desk
+  boilerplate.
+- [x] **4.2** Length-derived reading (0.6–2.5 s) and typing (1.0–5.0 s) delays.
+- [x] **4.3** Reply cleaner that strips robotic preambles.
 
-### 【已完成】Milestone 5: Localhost 控制台与实时监听看板
-- [x] **5.1 响应式仪表盘 (`http://127.0.0.1:9900`)**：
-  - 6 字段标准表格（类型 | WXID | 微信号 | 显示名称/备注 | 白名单准入 | 自动回复）；
-  - 全字段毫秒级模糊搜索（输入微信号 `ahh`、备注 `小泽` 或 wxid 均可即搜即得）；
-  - 一键复制 WXID / 微信号。
-- [x] **5.2 SSE 实时聊天监听**：
-  - 无需打开手机或微信客户端，即可在网页端只读监听好友与机器人的实时对话气泡。
+### M5 — Console and live monitor
+- [x] **5.1** Responsive dashboard with a six-field table (type | wxid |
+  WeChat ID | display name | whitelist | auto-reply), fuzzy search across all
+  fields, and one-click id copying.
+- [x] **5.2** SSE live chat monitoring, read-only.
+
+### M6 — Code review remediation and English standardisation
+> Full findings and their resolutions are in section 5.
+
+- [x] **6.1 Group authorisation defect (critical).** `Config.is_allowed` took
+  `(wxid, roomid="")`; callers that passed only the session id had rooms
+  checked against `allowed_wxids`. Every group chat stayed silent even after
+  the operator enabled it, while the console reported it as authorised. The
+  signature is now `is_allowed(session_id, is_group=None)` with `@chatroom`
+  inference, so a one-argument call is correct by construction.
+- [x] **6.2 Reply cleaner fought the persona.** A `^好的[，,]` rule stripped the
+  exact casual openers the persona prompt asks for. Every pattern is now
+  anchored on an explicit disclosure or boilerplate phrase.
+- [x] **6.3 Console turn timestamps.** `bot._notify_turn` read `"timestamp"`
+  from records the memory store writes as `"time"`, so every turn broadcast at
+  the epoch.
+- [x] **6.4 Deprecated event-loop access.** `Application.loop` is deprecated
+  and reads `None` before a runner binds it; the console now captures the
+  serving loop in `start()`.
+- [x] **6.5 Debug SQL endpoint.** The `q` term was interpolated straight into
+  SQL and the `sql` parameter accepted arbitrary statements against the
+  operator's whole message database, unauthenticated. Raw SQL is now gated
+  behind `cowagent2_debug_sql`, checked before gateway state, and search terms
+  are escaped against a `LIKE ... ESCAPE` clause.
+- [x] **6.6 Test isolation.** The suite rewrote the live `data/whitelist.json`
+  and `data/contacts_cache.json`. `WebServer` and `ContactScanner` now accept
+  injected config, memory and cache paths.
+- [x] **6.7 Package hygiene.** Added `__init__.py` to `cowagent2/` and
+  `cowagent2/tests/`; removed the dead import-time `scanner` singleton and the
+  cache write it performed on every import.
+- [x] **6.8 English standardisation.** `config.py`, `memory.py`, `scanner.py`,
+  `app.py` and `web_server.py` translated; logger names normalised to
+  `cowagent2.*`.
 
 ---
 
-### 【待开发】Milestone 6: 微信高频交互细节深化 (Phase 2)
-- [ ] **6.1 多气泡拆分发送 (Message Splitting)**：
-  - 正常人在微信中表达观点时通常会连发 2~3 条短句，而非一大段长篇大论。
-  - 引入按句意/标点符号的自然切分算法，分批次延时发送连续气泡。
-- [ ] **6.2 拟真作息与忙碌状态**：
-  - 支持设置作息时间（例如深夜延缓回复或提示“已休息”）。
-- [ ] **6.3 群聊场景智能参与**：
-  - 仅在被 `@`、特定关键词触发或与自身相关时插话，避免抢话刷屏。
+## 5. Review findings ledger
 
-### 【待开发】Milestone 7: 异常自愈与长效守护
-- [ ] **7.1 心跳看门狗 (Heartbeat Watchdog)**：
-  - 定时向 WCF 10086 发送状态嗅探，遇异常自动尝试无损重连。
-- [ ] **7.2 微信重启自动感知**：
-  - 当检测到微信客户端被用户手动重启后，自动执行注入恢复。
+| ID | Severity | Component | Finding | Status |
+|---|---|---|---|---|
+| CA2-01 | CRITICAL | `config.py`, `bot.py` | Rooms authorised against the contact list; group chat entirely non-functional | Fixed (M6.1) |
+| CA2-02 | HIGH | `web_server.py` | Unauthenticated arbitrary SQL over the WeChat message database; `q` interpolated unescaped | Fixed (M6.5) |
+| CA2-03 | HIGH | `human_simulator.py` | Reply cleaner removed legitimate conversational openers | Fixed (M6.2) |
+| CA2-04 | HIGH | `tests/` | Suite mutated live operator runtime data | Fixed (M6.6) |
+| CA2-05 | MEDIUM | `bot.py` | Turn timestamps always zero | Fixed (M6.3) |
+| CA2-06 | MEDIUM | `web_server.py` | Deprecated `Application.loop` used for cross-thread scheduling | Fixed (M6.4) |
+| CA2-07 | MEDIUM | package | Missing `__init__.py`; dead singleton writing to disk at import | Fixed (M6.7) |
+| CA2-08 | MEDIUM | all | Mixed Chinese/English comments, docstrings and logs | Fixed (M6.8) |
+| CA2-09 | MEDIUM | `memory.py` | No persistence — restart is total amnesia | Open → M7 |
+| CA2-10 | MEDIUM | `web_server.py` | Console has no authentication | Open → M9.2 |
+| CA2-11 | LOW | `bot.py` | Group `@` stripping is ad-hoc; CowAgent 1's `at_list` approach is more reliable | Open → M7.6 |
+| CA2-12 | LOW | `wcf_gateway.py` | `close()` reaches into `wcf._is_running` and raw sockets | Open → M9.1 |
+| CA2-13 | LOW | `app.py` | `SIGTERM` is not delivered on Windows; the handler is effectively `SIGINT`-only | Open → M9.1 |
+| CA2-14 | LOW | `static/index.html` | Console UI still Chinese | Open → M9.4 |
 
-### 【评测期】Milestone 8: CowAgent 1 与 CowAgent 2 A/B 对比评估
-- [ ] **8.1 资源占用与响应效率对比**：对比进程内存占用、冷启动时间与回复延迟。
-- [ ] **8.2 会话拟真度盲测**：评估外部好友对两个版本聊天真实感的反馈。
-- [ ] **8.3 架构稳定性与代码维护成本评估**。
+---
 
+## 6. CowAgent 1 reuse ledger
+
+| Capability | CowAgent 1 source | CowAgent 2 status |
+|---|---|---|
+| WCF `send_text` contract | `channel/wcf/wcf_channel.py:334` | **Adopted** — positional `(msg, receiver, aters)`, `status == 0` |
+| Login / liveness checks | `channel/wcf/wcf_channel.py` | **Adopted** — `is_login()` in gateway and health monitor |
+| Contact allow-list semantics | `channel/wcf/contact_filter.py` | **Adopted** — fail-closed empty list, non-string entries dropped |
+| Group reply target & `@` handling | `channel/wcf/wcf_message.py` | **Partial** — reply target correct; `at_list` stripping pending (M7.6) |
+| Memory subsystem | `agent/memory/*` | **Planned** — M7 |
+| Console auth (HMAC token) | `channel/web/web_channel.py:213` | **Planned** — M9.2 |
+| SSE streaming patterns | `channel/web/web_channel.py` | **Adopted** — console live stream |
+
+---
+
+## 7. Milestone 7 — Memory system port (the digital twin)
+
+> **Goal.** Give CowAgent 2 durable memory with two layers: one global memory
+> that consolidates what the account owner is like across every conversation,
+> and one private memory per contact with its own operator-authored documents
+> and workspace.
+
+### 7.0 Design intent
+
+The bot is the account owner's digital twin. That means two different things
+have to be remembered in two different places:
+
+- **What the owner is like** — decisions, commitments, preferences, plans,
+  recurring positions. This belongs in the *global* memory, is consolidated
+  from every conversation, and is injected into every reply. It is what makes
+  the twin consistent no matter who it is talking to.
+- **What happened with one contact** — that person's context, history,
+  relationship and the operator's specific instructions for them. This stays
+  in that contact's own files and is injected only in that conversation.
+
+#### The privacy boundary this creates
+
+CowAgent 1 partitions WeChat memory per person deliberately, and
+`agent/memory/identity.py` states why: a shared pile means *"what the agent
+learns about one contact would surface while it talks to another"*, which it
+calls the wrong answer for WeChat.
+
+A unified global memory reopens exactly that risk, so M7 does **not** simply
+merge the per-contact piles. The consolidation rule is:
+
+> The global memory records facts **about the owner**. Facts **about a
+> contact** stay in that contact's file and are never promoted.
+
+Concretely, "the owner decided to move the launch to March" is global; "Alice
+is job-hunting and asked me not to tell her manager" is not. The nightly
+global consolidation prompt enforces this, and M7.5 adds a test asserting that
+a contact-specific fact injected in one conversation cannot be retrieved from
+another. Contacts can additionally be marked `memory_private`, which excludes
+them from global consolidation entirely.
+
+### 7.1 Target workspace layout
+
+```text
+cowagent2/data/workspace/
+├── PERSONA.md                       # Stable identity of the account owner
+├── MEMORY.md                        # Global consolidated memory (injected always)
+├── memory/
+│   ├── 2026-09-07.md                # Global daily log
+│   ├── dreams/2026-09-07.md         # Consolidation diary
+│   └── users/
+│       └── <sanitised-wxid>/
+│           ├── MEMORY.md            # Per-contact long-term memory
+│           ├── PROFILE.md           # Operator-authored doc for this contact
+│           ├── 2026-09-07.md        # Per-contact daily log
+│           └── workspace/           # Per-contact files the agent may read
+└── index.db                         # SQLite chunk index (FTS5 + optional vectors)
+```
+
+### 7.2 Module port plan
+
+| CowAgent 1 module | LOC | Port decision |
+|---|---|---|
+| `agent/memory/identity.py` | 74 | **Port near-verbatim.** Already treats WCF as a per-person channel and sanitises ids into safe directory names. Drop the `common.const` / `Context` coupling — `cowagent2` already has `session_id` and `is_group`. |
+| `agent/memory/chunker.py` | 140 | **Port verbatim.** No external dependencies. |
+| `agent/memory/summarizer.py` | 914 | **Port the core.** `MemoryFlushManager`, daily summaries, and Deep Dream distillation. Replace `agent.protocol.models.LLMRequest` with the `ZhipuAiClient` the bot already holds; drop the `i18n` indirection and keep the Chinese prompts. |
+| `agent/memory/storage.py` | 1257 | **Port.** SQLite chunk store with FTS5 keyword search, corruption quarantine and trigram CJK matching. Vector columns stay but unused until 7.7. |
+| `agent/memory/manager.py` | 558 | **Port minus embeddings.** Hybrid search degrades to keyword-only; keep the two-pass file sync and temporal decay. |
+| `agent/memory/service.py` | 234 | **Port verbatim.** Filesystem list/read API with the path-traversal guard; backs the console's memory browser. |
+| `agent/memory/config.py` | 148 | **Simplify.** CowAgent 2 has exactly one workspace, so the per-workspace registry and pinning collapse to a single dataclass. |
+| `agent/memory/conversation_store.py` | 1834 | **Port trimmed.** CowAgent 2 needs `load_messages`, `append_messages`, `clear_session` and session listing — not runs, pinning, display-turn grouping or pagination. Target ~300 LOC. |
+| `agent/memory/vector_backend.py` + `embedding/` | 246+ | **Defer to 7.7**, retargeted from OpenAI to Zhipu `embedding-3`. |
+
+### 7.3 Turn-time prompt composition
+
+```
+system = human-simulation persona          (human_simulator.build_system_prompt)
+       + PERSONA.md                        (who the owner is)
+       + MEMORY.md                         (global memory, truncated to 200 lines / 25 KB)
+       + memory/users/<id>/MEMORY.md       (what I know about this contact)
+       + memory/users/<id>/PROFILE.md      (operator's instructions for this contact)
+       + retrieved chunks                  (hybrid search, scopes: shared + this user)
+messages = conversation_store.load_messages(session_id)
+```
+
+Truncation reuses CowAgent 1's `_truncate_memory_content` policy from
+`agent/prompt/workspace.py`: keep the newest 200 lines or 25 KB, whichever
+binds first, with a marker telling the model older content exists.
+
+### 7.4 Consolidation cycle
+
+1. **Turn ends** → transcript appended to the conversation store.
+2. **Window trims** → discarded messages summarised by the LLM and appended to
+   `memory/users/<id>/<date>.md` (asynchronous; never blocks a reply).
+3. **Nightly per-contact dream** → that contact's recent dailies distilled into
+   `memory/users/<id>/MEMORY.md`.
+4. **Nightly global dream** → every non-private contact's dailies rolled up
+   into the global `MEMORY.md` under the owner-facts-only rule of 7.0, with a
+   diary written to `memory/dreams/<date>.md`.
+
+Step 4 is the genuinely new work. CowAgent 1's `deep_dream` distils either one
+user's pile *or* the shared pile; it never rolls many users up into one. The
+new prompt, its dedup key, and the owner-vs-contact filter are M7.4.
+
+### 7.5 Deliverables
+
+- [ ] **7.1** `cowagent2/memory/` package: `identity.py`, `chunker.py`,
+  `storage.py`, `config.py` ported and unit-tested.
+- [ ] **7.2** `conversation_store.py` (trimmed) — durable transcripts;
+  `SessionMemoryManager` becomes a cache in front of it, and the existing
+  public API is preserved so no call site changes.
+- [ ] **7.3** `summarizer.py` — daily flush and per-contact Deep Dream on the
+  Zhipu client.
+- [ ] **7.4** Global consolidation — the cross-conversation roll-up, with the
+  owner-facts-only prompt and `memory_private` exclusion.
+- [ ] **7.5** Prompt composition in `bot.py`, plus an isolation test asserting
+  a contact-specific fact cannot leak into another conversation.
+- [ ] **7.6** Per-contact `PROFILE.md` and `workspace/`: console editor,
+  scaffolding on first contact, and CowAgent 1's `at_list` group `@` stripping
+  (closing CA2-11).
+- [ ] **7.7** Optional hybrid search — Zhipu `embedding-3` behind a config
+  flag; keyword-only remains the default.
+- [ ] **7.8** Console memory browser via the ported `MemoryService`: browse
+  and edit global memory, per-contact memory, dailies and dream diaries.
+
+### 7.6 Acceptance criteria
+
+- A restart preserves every session's history and both memory layers.
+- A fact the owner states in conversation A is reflected in `MEMORY.md` and
+  influences conversation B after consolidation.
+- A fact about contact A is **not** retrievable in a conversation with
+  contact B, and does not appear in the global `MEMORY.md`.
+- A contact marked `memory_private` never contributes to global memory.
+- Clearing one contact's memory leaves every other contact and the global
+  memory intact.
+- Memory writes never block a reply: flushes and dreams run off the reply path.
+
+---
+
+## 8. Milestone 8 — Interaction depth
+
+- [ ] **8.1 Multi-bubble sending.** Real people send two or three short
+  messages rather than one long paragraph. Split on sentence boundaries and
+  send in sequence with inter-message delays.
+- [ ] **8.2 Presence and schedule.** Slow or defer replies at night; support an
+  explicit "away" state.
+- [ ] **8.3 Group participation etiquette.** Speak only when `@`-mentioned, on
+  configured keywords, or when genuinely relevant.
+- [ ] **8.4 Multimodal.** Receive images and reply through a vision model;
+  send stickers naturally.
+
+## 9. Milestone 9 — Hardening
+
+- [ ] **9.1 Watchdog and clean lifecycle.** Heartbeat probing of port 10086
+  with lossless reconnect; replace the private-attribute teardown in
+  `WcfGateway.close()` (CA2-12); Windows-correct signal handling (CA2-13).
+- [ ] **9.2 Console authentication.** Port CowAgent 1's HMAC signed-token
+  scheme from `channel/web/web_channel.py` (CA2-10).
+- [ ] **9.3 WeChat restart detection.** Detect a manual client restart and
+  re-establish injection automatically.
+- [ ] **9.4 Console UI translation.** Translate `static/index.html` to English
+  (CA2-14).
+
+## 10. Milestone 10 — CowAgent 1 vs CowAgent 2 assessment
+
+- [ ] **10.1** Resource and latency comparison: memory footprint, cold start,
+  reply latency.
+- [ ] **10.2** Blind realism testing with real contacts.
+- [ ] **10.3** Architectural stability and maintenance-cost assessment.
+
+---
+
+## 11. ECC skills and subagents for this subsystem
+
+| Task | Skill / subagent | Why |
+|---|---|---|
+| Python idiom and PEP 8 review | `python-patterns`, `python-reviewer` | Standardisation pass and ongoing review |
+| Test design for M7 | `python-testing`, `tdd-workflow`, `tdd-guide` | Memory port needs tests written first |
+| Console REST conventions | `api-design` | `/api/*` naming, status codes, error envelopes |
+| Failure handling in the WCF and memory paths | `error-handling`, `silent-failure-hunter` | Async flush and subscriber callbacks swallow errors easily |
+| Doc governance and drift | `living-docs-governance`, `doc-updater` | Keep this roadmap and `../ROADMAP.md` consistent |
+| Security review before each merge | `security-reviewer` | Console endpoints, SQL surfaces, credential isolation |
+| Windows/WCF runtime verification | `windows-desktop-e2e` | Process, injection and port checks |
+| Architecture review of the memory port | `architect`, `code-architect` | M7 is the largest structural change to date |
+
+> Note: the `unified-memory` skill is **not** applicable here. It covers the
+> ECC Memory Vault for cross-harness agent handoffs, not a chatbot's runtime
+> memory of its conversations.

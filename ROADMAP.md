@@ -22,6 +22,11 @@ This document establishes the technical roadmap for **CowAgent-Rev** and its ven
    - **Localhost Management UI**: Modern local dashboard on `http://127.0.0.1:9900` for visual status monitoring and whitelist toggling.
    - **Seamless Config & API Reuse**: Directly reuse `CowAgent/config.json` (GLM-4-flash keys, base URL, prompt parameters) with zero duplicate setup.
    - **Singleton Anti-Wedge Guard**: Single long-running process managing WCF, preventing connection drops and DLL lockouts.
+   - **Digital Twin Memory (Milestone 7)**: Port CowAgent 1's `agent/memory/` subsystem so the bot carries one continuously consolidated global memory of the account owner across every conversation, alongside a private per-contact memory with its own operator-authored documents and workspace.
+6. **Code Reuse Over Reinvention (`cowagent2/` ← `CowAgent/`)**:
+   Where CowAgent 1 already has an implementation validated on real hardware — WCF transport, contact-filter semantics, web-console authentication, the memory subsystem — CowAgent 2 ports it rather than building a parallel one. The reuse ledger lives in [`cowagent2/ROADMAP.md`](cowagent2/ROADMAP.md) section 6.
+7. **English Codebase Standard**:
+   Comments, docstrings, log messages and documentation across the workspace are English. Chinese is retained only where it is the product itself: persona prompts, WeChat-facing reply text, user-typed commands (`#清除记忆`), and regexes matching Chinese model output.
 
 ---
 
@@ -84,19 +89,28 @@ This document establishes the technical roadmap for **CowAgent-Rev** and its ven
 C:\Users\1\CowAgent-Rev\
 ├── .venv/                         # Shared Python 3.13 virtual environment
 ├── cowagent2/                     # [NEW] CowAgent 2 Minimalist WCF Chatbot
+│   ├── __init__.py                # Package marker
 │   ├── app.py                     # CowAgent 2 entry point & lifespan runner
-│   ├── config.py                  # Config loader (reuses CowAgent/config.json)
+│   ├── config.py                  # Config loader + whitelist / access control
 │   ├── wcf_gateway.py             # WCF singleton gateway & message listener
 │   ├── scanner.py                 # Contact & group chat scanner & name binder
 │   ├── memory.py                  # Strictly isolated session memory engine
+│   ├── human_simulator.py         # Persona prompt & reading/typing pacing
 │   ├── bot.py                     # Minimalist GLM-4-flash bot dispatcher
 │   ├── web_server.py              # Localhost Web UI server (aiohttp @ :9900)
+│   ├── memory/                    # [M7 PLANNED] Ported durable memory subsystem
 │   ├── static/                    # Dashboard frontend (HTML/CSS/JS)
-│   └── data/                      # Persistent storage (whitelist.json, contacts.json)
+│   ├── tests/                     # Isolated unit suite (pytest)
+│   ├── data/                      # Runtime state (whitelist.json, contacts_cache.json)
+│   │   └── workspace/             # [M7 PLANNED] MEMORY.md + memory/users/<wxid>/
+│   ├── README.md                  # Subsystem overview
+│   └── ROADMAP.md                 # Subsystem milestones, findings & reuse ledger
 ├── CowAgent/                      # Legacy application codebase
 │   ├── app.py                     # Legacy entry point
 │   ├── config.py                  # System configuration loader
 │   ├── config.json                # Live configuration & API keys (reused by v2)
+│   ├── agent/memory/              # Memory subsystem — port source for cowagent2 M7
+│   ├── channel/wcf/               # WCF channel — reuse baseline for cowagent2
 │   └── ...
 ├── smoketest/                     # Live smoke test suite
 ├── WeChatFerry/                    # Vendored WeChatFerry (branch 3.9.12.56)
@@ -271,6 +285,48 @@ C:\Users\1\CowAgent-Rev\
   - Inbound WCF message arrives from 10087.
   - Filter: checks if sender `wxid` or `roomid` is explicitly whitelisted. If not, drops silently.
   - For whitelisted senders: loads isolated session memory -> calls Zhipu AI GLM-4-flash -> applies human simulation pacing -> dispatches response via 10086 -> persists memory -> streams update to Localhost UI.
+
+---
+
+### Milestone 7: CowAgent 2 Code Review Remediation & English Standardisation
+> **Goal**: Bring `cowagent2/` up to the workspace engineering standard — fix the defects a full review against `CowAgent/` surfaced, and unify the codebase on English.
+
+Full findings ledger and per-item detail: [`cowagent2/ROADMAP.md`](cowagent2/ROADMAP.md) sections 4 (M6) and 5.
+
+- [x] **7.1 Group Authorisation Defect (CRITICAL, CA2-01)**
+  - `Config.is_allowed(wxid, roomid="")` routed a bare session id to the contact list, so a chatroom enabled in the console was checked against `allowed_wxids` and never matched. Group chat was entirely non-functional while the console reported those rooms as authorised.
+  - Signature is now `is_allowed(session_id, is_group=None)` with `@chatroom` inference, making a single-argument call correct by construction. All four call sites updated.
+- [x] **7.2 Console SQL Surface Hardened (HIGH, CA2-02)**
+  - `/api/debug_db` accepted arbitrary SQL against the operator's entire WeChat message database with no authentication, and interpolated the `q` search term unescaped.
+  - Raw SQL now requires opt-in via `cowagent2_debug_sql`, is checked before any gateway state, and search terms are escaped against an explicit `LIKE ... ESCAPE` clause (verified against real SQLite semantics).
+- [x] **7.3 Human Simulation Corrections (HIGH, CA2-03)**
+  - The reply cleaner stripped the exact casual openers the persona prompt asks the model to produce. Patterns are now anchored on explicit AI-disclosure or service-desk phrases.
+- [x] **7.4 Test Isolation (HIGH, CA2-04)**
+  - The suite rewrote the operator's live `data/whitelist.json` and `data/contacts_cache.json`. `WebServer` and `ContactScanner` now take injected config, memory and cache paths; the suite runs entirely on temporary files.
+- [x] **7.5 Correctness & Hygiene (MEDIUM, CA2-05..08)**
+  - Turn timestamps read the key the memory store actually writes; the console captures its serving loop instead of the deprecated `Application.loop`; `__init__.py` added to package and tests; the dead import-time `scanner` singleton and its disk write removed.
+- [x] **7.6 English Standardisation (CA2-08)**
+  - `config.py`, `memory.py`, `scanner.py`, `app.py`, `web_server.py` translated; logger names normalised to `cowagent2.*`. Chinese retained only in persona prompts, WeChat-facing text, user commands, and Chinese-output regexes.
+- [x] **7.7 Regression Coverage**
+  - Suite grown from 11 to 31 tests, adding `tests/test_config_access_control.py` (default-deny, room/contact separation, malformed-entry handling, model policy) and console regression tests for the room-authorisation and SQL-gating defects.
+
+---
+
+### Milestone 8: CowAgent 2 Memory System Port — Digital Twin
+> **Goal**: Port `CowAgent/agent/memory/` into `cowagent2/` so the bot becomes the account owner's digital twin: one global memory consolidated across every conversation, plus private per-contact memory with configurable documents and workspaces.
+
+Full design, module-by-module port decisions, workspace layout and acceptance criteria: [`cowagent2/ROADMAP.md`](cowagent2/ROADMAP.md) section 7.
+
+- [ ] **8.1 Foundation** — port `identity.py`, `chunker.py`, `storage.py` (SQLite + FTS5) and a simplified `config.py`.
+- [ ] **8.2 Durable Transcripts** — port a trimmed `conversation_store.py`; `SessionMemoryManager` becomes a cache in front of it with its public API unchanged.
+- [ ] **8.3 Summarisation & Per-Contact Dream** — port `MemoryFlushManager` and Deep Dream onto the Zhipu client already held by the bot.
+- [ ] **8.4 Global Consolidation** — the genuinely new component: roll every non-private contact's daily records into one global `MEMORY.md`. CowAgent 1's `deep_dream` distils one user's pile *or* the shared pile; it never rolls many users up into one.
+- [ ] **8.5 Prompt Composition & Leak Test** — inject `PERSONA.md` + global `MEMORY.md` + per-contact memory and profile; assert a contact-specific fact cannot surface in another conversation.
+- [ ] **8.6 Per-Contact Documents & Workspace** — `PROFILE.md` and `workspace/` per contact, editable from the console.
+- [ ] **8.7 Optional Hybrid Search** — Zhipu `embedding-3` behind a config flag; keyword-only stays the default.
+- [ ] **8.8 Console Memory Browser** — port `MemoryService` (including its path-traversal guard) to browse and edit memory files.
+
+> **Privacy constraint (must hold).** `CowAgent/agent/memory/identity.py` partitions WeChat memory per person precisely because a shared pile means *"what the agent learns about one contact would surface while it talks to another"*. A unified global memory reopens that risk, so consolidation is restricted to facts **about the account owner** — decisions, commitments, preferences, plans. Facts **about a contact** stay in that contact's file and are never promoted. Contacts may additionally be marked `memory_private` to be excluded from global consolidation entirely.
 
 ---
 

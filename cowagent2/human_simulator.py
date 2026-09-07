@@ -111,18 +111,32 @@ class HumanSimulator:
         return prompt.strip()
 
     def clean_human_reply(self, raw_reply: str) -> str:
-        """Clean any accidental robotic preamble or trailing boilerplate from reply."""
+        """Strip robotic preambles the model may prepend to an otherwise fine reply.
+
+        Every pattern must be anchored on an explicit assistant-disclosure or
+        service-desk phrase. A rule keyed only on a casual opener would fight
+        the persona instead of enforcing it: ``build_system_prompt`` asks the
+        model for exactly those openers ("好嘞", "收到", "好的"), so a bare
+        ``^好的[，,]`` rule turned "好的，我马上去看一下" into "我马上去看一下"
+        and quietly flattened the voice on ordinary replies.
+        """
         text = raw_reply.strip()
 
-        # Remove common robotic preambles
+        # Robotic preambles. Each requires a disclosure or boilerplate phrase,
+        # never a standalone conversational opener.
         patterns = [
             r"^(作为一个|作为一名)?[^，,。:\n]*(人工智能|AI|语言模型|智能助手|机器人)[^，,。:\n]*[，,。:]\s*",
             r"^你好[！!，,]?(很高兴为您服务|请问有什么可以帮您[？?]?)\s*",
-            r"^(好的|好的呢)[，,]\s*(作为[^\n]+[，,])?\s*",
+            r"^(好的|好的呢)[，,]\s*作为[^\n]+?[，,]\s*",
             r"^\*+🤖[^\n]+\*+\n*",
         ]
         for p in patterns:
             text = re.sub(p, "", text, flags=re.IGNORECASE).strip()
+
+        # A removed preamble can leave its separator behind ("很高兴为您服务，"
+        # ends one clause, and the comma opened the next). Drop dangling
+        # leading punctuation so the reply still starts like a sentence.
+        text = re.sub(r"^[，,。：:、；;！!？?\s]+", "", text)
 
         # Strip accidental thought tags if any leak
         text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()

@@ -22,14 +22,33 @@ from typing import Dict, List, Optional, Set, Any
 
 from aiohttp import web
 
-from cowagent2.config import get_config
-from cowagent2.memory import get_memory_manager
+from cowagent2.config import Config, get_config
+from cowagent2.memory import SessionMemoryManager, get_memory_manager
 from cowagent2.scanner import ContactScanner
 from cowagent2.wcf_gateway import WcfGateway
 
 logger = logging.getLogger("cowagent2.web_server")
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+# The single character declared in the LIKE ... ESCAPE clause below. Named so
+# the SQL text and the escaping routine cannot drift apart, and so neither has
+# to be written as a backslash run inside an f-string.
+LIKE_ESCAPE_CHAR = "\\"
+
+
+def _escape_sql_like(term: str) -> str:
+    """Neutralise a user search term for a single-quoted SQL LIKE literal.
+
+    ``wcf.query_sql`` takes a finished SQL string over RPC and offers no bind
+    parameters, so the term has to be escaped here: the escape character
+    itself first, then the LIKE wildcards it protects, then the quote that
+    would otherwise close the literal and let the term append its own clauses.
+    """
+    out = term.replace(LIKE_ESCAPE_CHAR, LIKE_ESCAPE_CHAR * 2)
+    out = out.replace("%", LIKE_ESCAPE_CHAR + "%")
+    out = out.replace("_", LIKE_ESCAPE_CHAR + "_")
+    return out.replace("'", "''")
 
 
 class WebServer:
@@ -41,17 +60,27 @@ class WebServer:
         port: int = 9900,
         gateway: Optional[WcfGateway] = None,
         scanner: Optional[ContactScanner] = None,
+        config: Optional[Config] = None,
+        memory: Optional[SessionMemoryManager] = None,
     ):
         self.host = host
         self.port = port
-        self.config = get_config()
+        # config and memory are injectable so a test can drive the console
+        # against a temporary whitelist file and an empty transcript store.
+        # Defaulting to the process singletons meant the suite's whitelist
+        # toggle test rewrote the operator's live data/whitelist.json.
+        self.config = config or get_config()
         self.gateway = gateway or WcfGateway.get_instance()
         self.scanner = scanner or ContactScanner(wcf_client=self.gateway.wcf)
-        self.memory = get_memory_manager()
+        self.memory = memory or get_memory_manager()
         self.app = web.Application()
         self._sse_queues: Set[asyncio.Queue] = set()
         self._runner: Optional[web.AppRunner] = None
         self._site: Optional[web.TCPSite] = None
+        # Captured in start(). aiohttp's Application.loop is deprecated and
+        # reads None until a runner binds it, so callbacks arriving from the
+        # WCF listener thread need our own reference to hop onto the loop.
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._setup_routes()
 
     def _setup_routes(self) -> None:
@@ -232,7 +261,7 @@ class WebServer:
         history = self.memory.get_history(session_id)
         contact = self.scanner.get_contact(session_id) or {}
         is_group = bool(contact.get("type") == "chatroom" or session_id.endswith("@chatroom"))
-        is_whitelisted = self.config.is_allowed(session_id, session_id if is_group else "")
+        is_whitelisted = self.config.is_allowed(session_id, is_group)
         auto_reply = self.config.get_session_auto_reply(session_id)
         return web.json_response({
             "status": "success",
@@ -259,7 +288,7 @@ class WebServer:
         try:
             body = await request.json()
             receiver = body.get("receiver", "filehelper").strip()
-            message = body.get("message", "CowAgent 2 测试消息").strip()
+            message = body.get("message", "CowAgent 2 test message").strip()
 
             if not receiver or not message:
                 return web.json_response({"status": "error", "message": "receiver and message required"}, status=400)
@@ -270,7 +299,7 @@ class WebServer:
                 return web.json_response({
                     "status": "error",
                     "return_code": ret,
-                    "message": f"WCF 发送失败 (代码: {ret})"
+                    "message": f"WCF send failed (status {ret})",
                 }, status=500)
 
             # Record message in isolated conversation memory so it displays in UI
@@ -287,30 +316,64 @@ class WebServer:
             return web.json_response({
                 "status": "success",
                 "return_code": 0,
-                "message": "发送成功"
+                "message": "sent",
             })
         except Exception as e:
             logger.error(f"Exception in handle_test_send: {e}", exc_info=True)
             return web.json_response({"status": "error", "message": str(e)}, status=500)
 
     async def handle_debug_db(self, request: web.Request) -> web.Response:
+        """Inspect the WeChat message database.
+
+        This endpoint reads the operator's own chat history, and the console
+        has no authentication, so the surface is deliberately narrow:
+
+        - the free-form ``sql`` parameter is refused unless the operator opts
+          in with ``cowagent2_debug_sql`` in ``CowAgent/config.json``;
+        - the ``q`` search term is escaped rather than interpolated, so a
+          quote in the term cannot terminate the literal and append clauses.
+        """
+        db_target = request.query.get("db", "MSG0.db").strip()
+        sql_param = request.query.get("sql", "").strip()
+        q = request.query.get("q", "").strip()
+
+        # Authorisation first, before any gateway state is consulted: a
+        # request that is not allowed to run must be refused the same way
+        # whether or not WeChat happens to be connected.
+        if sql_param and not self.config.debug_sql_enabled:
+            return web.json_response({
+                "status": "error",
+                "message": (
+                    "Raw SQL is disabled. Set \"cowagent2_debug_sql\": true "
+                    "in CowAgent/config.json to enable it."
+                ),
+            }, status=403)
+
         wcf = self.gateway.wcf
         if not wcf:
-            return web.json_response({"error": "wcf not ready"})
+            return web.json_response(
+                {"status": "error", "message": "WCF gateway is not connected"},
+                status=503,
+            )
         try:
-            dbs = wcf.get_dbs() or []
             if request.query.get("dbs"):
-                return web.json_response({"dbs": dbs})
+                return web.json_response({"dbs": wcf.get_dbs() or []})
 
-            db_target = request.query.get("db", "MSG0.db").strip()
-            sql_param = request.query.get("sql", "").strip()
-            q = request.query.get("q", "").strip()
             if sql_param:
                 sql = sql_param
             elif q:
-                sql = f"SELECT StrTalker, StrContent, IsSender, CreateTime FROM MSG WHERE StrContent LIKE '%{q}%' ORDER BY CreateTime DESC LIMIT 10;"
+                term = _escape_sql_like(q)
+                sql = (
+                    "SELECT StrTalker, StrContent, IsSender, CreateTime FROM MSG "
+                    f"WHERE StrContent LIKE '%{term}%' ESCAPE '{LIKE_ESCAPE_CHAR}' "
+                    "ORDER BY CreateTime DESC LIMIT 10;"
+                )
             else:
-                sql = "SELECT StrTalker, StrContent, IsSender, CreateTime FROM MSG WHERE StrTalker NOT LIKE '%@chatroom%' AND StrTalker != 'filehelper' ORDER BY CreateTime DESC LIMIT 25;"
+                sql = (
+                    "SELECT StrTalker, StrContent, IsSender, CreateTime FROM MSG "
+                    "WHERE StrTalker NOT LIKE '%@chatroom%' AND StrTalker != 'filehelper' "
+                    "ORDER BY CreateTime DESC LIMIT 25;"
+                )
 
             rows = wcf.query_sql(db_target, sql) or []
             return web.json_response({
@@ -320,6 +383,7 @@ class WebServer:
                 "rows": rows,
             })
         except Exception as e:
+            logger.error(f"Error querying debug database: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
     async def handle_sse_stream(self, request: web.Request) -> web.StreamResponse:
@@ -370,11 +434,8 @@ class WebServer:
                 pass
 
     def on_turn_completed(self, turn_data: Dict[str, Any]) -> None:
-        """Callback invoked by Bot when a turn completes."""
-        asyncio.run_coroutine_threadsafe(
-            self.broadcast_event("chat_turn", turn_data),
-            self.app.loop,
-        )
+        """Callback invoked by the bot when a conversation turn completes."""
+        self._schedule(self.broadcast_event("chat_turn", turn_data))
 
     def on_raw_message(self, msg) -> None:
         """Callback to stream raw inbound messages to console."""
@@ -399,19 +460,29 @@ class WebServer:
                 "content": content,
                 "msg_type": msg_type,
                 "is_group": is_group,
-                "whitelisted": self.config.is_allowed(session_id),
+                "whitelisted": self.config.is_allowed(session_id, is_group),
                 "time": time.time(),
             }
-            if self.app.loop and self.app.loop.is_running():
-                asyncio.run_coroutine_threadsafe(
-                    self.broadcast_event("inbound_msg", event_data),
-                    self.app.loop,
-                )
+            self._schedule(self.broadcast_event("inbound_msg", event_data))
         except Exception as e:
             logger.warning(f"Error handling raw message for SSE: {e}")
 
+    def _schedule(self, coro) -> None:
+        """Run a coroutine on the serving loop from any thread.
+
+        Drops the work when the server is not up rather than raising into a
+        WCF subscriber callback, where an exception would be swallowed by
+        the gateway and only surface as a missing console update.
+        """
+        loop = self._loop
+        if loop is None or not loop.is_running():
+            coro.close()
+            return
+        asyncio.run_coroutine_threadsafe(coro, loop)
+
     async def start(self) -> None:
-        """Start aiohttp server."""
+        """Start the aiohttp server."""
+        self._loop = asyncio.get_running_loop()
         self._runner = web.AppRunner(self.app)
         await self._runner.setup()
         self._site = web.TCPSite(self._runner, self.host, self.port)

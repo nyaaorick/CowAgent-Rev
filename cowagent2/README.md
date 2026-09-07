@@ -1,85 +1,124 @@
-# CowAgent 2 — 极简微信智能体系统 (WCF 3.9.12.56)
+# CowAgent 2 — Minimalist WeChat Agent (WCF 3.9.12.56)
 
-CowAgent 2 是专为 **Windows 原生微信 3.9.12.56 + WeChatFerry (WCF)** 打造的极简、高可靠、记忆完全隔离的下一代微信智能体。
+CowAgent 2 is a clean-room rebuild of CowAgent dedicated to **native Windows
+WeChat 3.9.12.56 driven through WeChatFerry (WCF)**. It drops the multi-channel
+adapter stack of CowAgent 1 in favour of one long-lived process, strict
+session isolation, and a human-simulated conversational surface.
 
----
-
-## ✨ 核心特性
-
-1. **零配置复用 (Zero-Config Reuse)**:
-   - 自动读取并复用 `CowAgent/config.json` 中的智谱 AI GLM-4-flash 密钥与基础模型配置，无需二次输入。
-2. **默认拒绝白名单模式 (Default-Deny Whitelist)**:
-   - 仅在白名单中勾选启用的联系人 (`allowed_wxids`) 或群聊 (`allowed_rooms`) 才能触发机器人回复，杜绝误扰与未经授权对话。
-3. **严格会话记忆隔离 (Strict Session Memory Isolation)**:
-   - 每一个 `wxid` (私聊) 和每一个 `roomid` (群聊) 拥有完全物理隔离的记忆上下文和独立的滑动窗口修剪；
-   - 杜绝跨联系人/跨群聊的内容串扰；
-   - 支持单个会话独立清理记忆 (`#清除记忆` / `#reset`)。
-4. **全拟人化人类模拟 (Full Human Simulation)**:
-   - **自然人设**: 注入日常微信交流语气，真诚自然、口语化，杜绝机械化 AI 套话 (例如“我是人工智能助手”、“很高兴为您服务”)；
-   - **真实打字与阅读延时**: 根据接收文本长度动态模拟人类阅读时间 (`0.6s - 2.5s`)，根据生成回复长度动态模拟人类打字速度与思考停顿 (`1.0s - 5.0s`)，避免毫秒级机器秒回，同时规避微信风控。
-5. **Localhost Web 控制台与实时会话监听 (Reusing CowAgent Console)**:
-   - 访问 `http://127.0.0.1:9900` 打开管理界面；
-   - 实时监控微信运行状态与 WCF 连接健康度；
-   - 动态扫描发现的微信好友与群聊，一键勾选/取消白名单与自动回复；
-   - **Phase 2 实时监听**: 基于 SSE (Server-Sent Events) 实时监听对话流，在网页端以微信气泡样式静默观察对话，安全只读不干扰。
-6. **底层修复与全量联系人三元绑定 (Full Contact Resolution)**:
-   - 彻底修复 WeChat 3.9.12.56 数据库句柄偏移问题 (`storage + 0x38`)，永久解锁 `MicroMsg.db`；
-   - 毫秒级提取并绑定 `wxid`（系统唯一标识）+ `微信号`（Alias）+ `显示名称/备注名`（Remark/NickName）；
-   - 详见底层技术修复文档 [`docs/WCF_WECHAT_3.9.12.56_REPAIR.md`](../docs/WCF_WECHAT_3.9.12.56_REPAIR.md) 与专有路线图 [`cowagent2/ROADMAP.md`](ROADMAP.md)。
-7. **防 Wedge 单例通信守卫**:
-   - 强制使用 Release 版 `spy.dll` (`debug=False`)，彻底杜绝 MSVC Debug CRT 导致的崩溃 (`WCF-BUG-05`)；
-   - 单进程守护连接，避免短命脚本频繁断连造成的 RPC 锁死 (`WCF-BUG-03`)。
-8. **严格继承 CowAgent 1 核心通信规范**:
-   - 彻底对齐 CowAgent 1 的 WCF 发送机制（`send_text(msg, receiver, aters)` 位置参数与 `status == 0` 强校验），保证发信 100% 投递与会话记忆/前端监听闭环。
+- **Roadmap and milestones:** [`ROADMAP.md`](ROADMAP.md)
+- **Workspace-wide roadmap (authoritative):** [`../ROADMAP.md`](../ROADMAP.md)
+- **WCF repair notes:** [`../docs/WCF_WECHAT_3.9.12.56_REPAIR.md`](../docs/WCF_WECHAT_3.9.12.56_REPAIR.md)
 
 ---
 
-## 📁 目录结构
+## Core features
+
+1. **Zero-config reuse.** LLM credentials and model parameters are read
+   straight from `CowAgent/config.json` (`zhipu_ai_api_key`, `model`,
+   `temperature`, `top_p`, `character_desc`). Nothing is entered twice.
+2. **Default-deny access control.** Only contacts in `allowed_wxids` and rooms
+   in `allowed_rooms` can reach the bot. An empty or malformed list means
+   *nobody*, so a truncated config fails closed — the rule established by
+   CowAgent 1's `channel/wcf/contact_filter.py`.
+3. **Strict session isolation.** Every `wxid` and every `roomid` owns a
+   separate context with its own sliding window. Nothing crosses between
+   sessions, and `#清除记忆` / `#reset` clears only the caller's own history.
+4. **Human simulation.** A persona prompt tuned for real WeChat speech, plus
+   length-derived reading (0.6–2.5 s) and typing (1.0–5.0 s) delays so replies
+   never land in machine time.
+5. **Localhost console.** `http://127.0.0.1:9900` serves live WeChat and WCF
+   health, the discovered contact/room table with one-click whitelist and
+   auto-reply toggles, a session inspector, and an SSE live-chat stream.
+6. **Full contact resolution.** With the patched `spy.dll` (offset `0x20dd4`,
+   `0x34` → `0x38`), `MicroMsg.db` opens natively and every session binds
+   `wxid` + WeChat ID (`Alias`) + display name (`Remark` / `NickName`).
+7. **Anti-wedge singleton gateway.** One long-lived `Wcf(debug=False)`
+   instance using the Release `spy.dll`, avoiding the Debug-CRT crash
+   (WCF-BUG-05) and the RPC lockouts caused by short-lived clients
+   (WCF-BUG-03).
+8. **CowAgent 1 as the reuse baseline.** Anything touching WCF transport
+   follows the implementation already proven on real hardware in
+   `CowAgent/channel/wcf/wcf_channel.py` — `send_text(msg, receiver, aters)`
+   positionally, `status == 0` checked strictly, `is_login()` for liveness.
+
+---
+
+## Layout
 
 ```text
 cowagent2/
-├── app.py                     # 统一启动入口与生命周期管理
-├── config.py                  # 配置管理器（复用 CowAgent/config.json，管理 whitelist.json）
-├── wcf_gateway.py             # WCF 单例通信网关 (debug=False, 事件消费者)
-├── scanner.py                 # 联系人与群聊动态扫描/绑定器
-├── memory.py                  # 严格隔离的会话记忆引擎 (SessionMemoryManager)
-├── human_simulator.py         # 人类打字延时、阅读耗时与拟人提示词引擎
-├── bot.py                     # 极简 GLM-4-flash 智能调度与鉴权回路
-├── web_server.py              # Localhost Web 控制台后端 (aiohttp, REST + SSE)
-├── static/                    # 控制台前端界面 (纯原生响应式 HTML+CSS+JS)
-│   └── index.html
-├── data/                      # 运行时持久化数据 (gitignored)
-│   ├── whitelist.json         # 白名单配置
-│   └── contacts_cache.json    # 联系人绑定缓存
-├── tests/                     # 自动化测试套件
+├── __init__.py                # Package marker
+├── app.py                     # Entry point and lifespan coordinator
+├── config.py                  # Config reuse + whitelist / access control
+├── wcf_gateway.py             # WCF singleton gateway and message listener
+├── scanner.py                 # Contact & chatroom discovery and name binding
+├── memory.py                  # Isolated short-term session memory
+├── human_simulator.py         # Persona prompt, reading/typing pacing
+├── bot.py                     # GLM dispatch loop and authorisation gate
+├── web_server.py              # Console backend (aiohttp REST + SSE)
+├── static/index.html          # Console frontend
+├── data/                      # Runtime state (gitignored)
+│   ├── whitelist.json
+│   └── contacts_cache.json
+├── tests/
+│   ├── test_config_access_control.py
 │   ├── test_human_simulator.py
 │   ├── test_memory_isolation.py
 │   └── test_web_server.py
-└── README.md                  # 本说明文档
+├── README.md                  # This document
+└── ROADMAP.md                 # Milestones and the memory-system plan
 ```
 
 ---
 
-## 🚀 快速启动
+## Running
 
-1. **手动打开并登录微信客户端** (微信版本 3.9.12.56)。
-2. 启动 CowAgent 2：
+1. Start and log into the WeChat client (3.9.12.56) manually. CowAgent 2 never
+   launches or terminates WeChat itself.
+2. Launch the agent:
    ```powershell
    .venv\Scripts\python.exe -m cowagent2.app
    ```
-3. 在浏览器打开控制台：
-   ```
-   http://127.0.0.1:9900
-   ```
-4. 在控制台中勾选需要交互的好友或群聊（默认已允许 `filehelper` 文件传输助手）。
-5. 在微信中向 `文件传输助手` 发送消息即可获得拟人化回复！
+3. Open the console at `http://127.0.0.1:9900`.
+4. Tick the contacts or rooms the bot may talk to. `filehelper` (File Transfer
+   Assistant) is allowed by default and is the only safe first test target.
+5. Message the File Transfer Assistant from WeChat to see a reply.
+
+### Configuration keys
+
+All keys live in `CowAgent/config.json` and are shared with CowAgent 1.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `zhipu_ai_api_key` | — | Zhipu AI credential (required) |
+| `model` | `glm-4-flash` | Chat model. Any `4.7` variant is rewritten to `glm-4-flash` per the ROADMAP model policy. |
+| `temperature` / `top_p` | `0.7` | Sampling parameters |
+| `character_desc` | — | Extra persona instructions appended to the human-simulation prompt |
+| `cowagent2_web_port` | `9900` | Console port |
+| `cowagent2_debug_sql` | `false` | Enables the console's raw-SQL inspection endpoint. Leave off: it reads the entire WeChat message database and the console is unauthenticated. |
 
 ---
 
-## 🧪 自动化测试
+## Tests
 
-运行全部单元测试：
 ```powershell
-.venv\Scripts\python.exe -m unittest discover cowagent2/tests
+.venv\Scripts\python.exe -m pytest cowagent2/tests -q
 ```
 
+The suite injects its own config, scanner cache, and memory store, so it never
+reads or writes the operator's live `data/` files.
+
+---
+
+## Known constraints
+
+- **Memory is volatile.** Session history lives in process only; a restart is
+  total amnesia. Durable global and per-contact memory is Milestone 7 in
+  [`ROADMAP.md`](ROADMAP.md).
+- **The console has no authentication.** It binds to `127.0.0.1` only, but any
+  process on the host can call it. CowAgent 1's HMAC token scheme
+  (`CowAgent/channel/web/web_channel.py`) is the intended port — Milestone 9.2.
+- **Text only.** `WxMsg.type != 1` is ignored; images, voice and files are
+  Milestone 8.
+- **The console UI is still Chinese.** Backend code, comments and docs are
+  English; `static/index.html` has not been translated yet (Milestone 9.4).
