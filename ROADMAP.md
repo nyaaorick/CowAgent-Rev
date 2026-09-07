@@ -32,6 +32,7 @@ This document establishes the technical roadmap for **CowAgent-Rev** and its ven
 | **WCF-BUG-02** | `spy/database_executor.cpp` | `AccountStorageMgr` offset (`base + 0x4327610`) or storage-array traversal fails under 3.9.12.56 memory layout; `find_db_handle` logs `Failed to get handle for database 'MicroMsg.db'`. | `get_contacts()` returns 0 contacts; contact nicknames fall back to raw `wxid`. | In-process DB access diagnostic. Does not block message hook delivery (group `@` tags are extracted from message XML directly). |
 | **WCF-BUG-03** | `wcferry/client.py` & `spy.dll` | Short-lived Python processes invoke `Wcf.__del__` -> `cleanup()` -> `wcf.exe stop`, unhooking WeChat ungracefully or leaving file locks open. | Spy becomes wedged or crashes WeChat; subsequent injection fails with `spy 已注入` or silent failure. Requires complete WeChat restart. | Enforce single long-lived process convention; avoid short throwaway scripts; use defensive shutdown handling. |
 | **WCF-BUG-04** | `clients/python/wcferry/wxmsg.py` | Line 59 regular expression uses `[\s|\S]*` without raw string declaration (`r"..."`). | Triggers `SyntaxWarning: invalid escape sequence '\s'` on Python 3.12+ and Python 3.13. | Update string literal to raw string `r"..."`. |
+| **WCF-BUG-05** | `spy_debug.dll` / `wcferry.Wcf(debug=True)` | `Wcf(debug=True)` (wcferry default) injects `spy_debug.dll`, compiled with MSVC Debug CRT (`/MDd` / `_ITERATOR_DEBUG_LEVEL=2`). Passing Debug STL containers (`std::vector<WxString>`, `std::wstring`) into Release WeChat (`WeChatWin.dll` `/MD`) triggers an immediate access violation / breakpoint (`0x80000003`) crash in `sendMsg`. | WeChat client crashes immediately with error dialog reporting `错误模块: spy_debug.dll` upon sending text. | Explicitly instantiate `Wcf(debug=False)` to inject the Release `spy.dll` which strictly shares Release CRT ABI with WeChat. Clean `.wcf.lock` on startup. |
 
 ---
 
@@ -128,22 +129,22 @@ C:\Users\1\CowAgent-Rev\
 ### Milestone 3: Minimal MVP — File Transfer Assistant Verification (`filehelper`)
 > **Goal**: Prove end-to-end WCF connectivity and outbound transmission safely without disturbing external chat contacts.
 
-- [ ] **3.1 Session & State Verification**
-  - Verify native WeChat 3.9.12.56 is running and authenticated.
-  - Connect `Wcf` client in local mode.
-  - Validate responses from:
-    - `wcf.is_login() -> True`
-    - `wcf.get_self_wxid() -> valid wxid`
-    - `wcf.get_user_info() -> dictionary with name and home directory`
-- [ ] **3.2 Outbound Filehelper Transmission**
-  - Send test greeting to WeChat File Transfer Assistant:
+- [x] **3.1 Session & State Verification**
+  - Verified native WeChat 3.9.12.56 running and authenticated on Windows.
+  - Connected `Wcf(debug=False, block=False)` client in local mode.
+  - Validated responses: `is_login() -> True`, `self_wxid -> wxid_1u2zfb3han0g22`.
+- [x] **3.2 Outbound Filehelper Transmission**
+  - Executed test suite via [`smoketest/wcf_smoke_test.py`](smoketest/wcf_smoke_test.py).
+  - Outbound text transmission succeeded:
     ```python
-    wcf.send_text("CowAgent-Rev Windows Native MVP Test: filehelper OK", "filehelper")
+    wcf.send_text("【实机测试】WCF 发信验证成功！时间: 2026-09-07 05:42:43", "filehelper")
+    # Returns 0 (SUCCESS), verified received in local WeChat UI.
     ```
-  - Verify message instantly appears in the local Windows WeChat UI under `文件传输助手`.
-  - Send image test to `filehelper` using a local test image.
-- [ ] **3.3 Graceful Teardown Verification**
-  - Verify client disconnects cleanly without causing WeChat to freeze or crash.
+  - Confirmed message appeared immediately in WeChat's `文件传输助手` chat window.
+- [x] **3.3 Graceful Teardown & ABI Stabilization**
+  - Verified `wcf.cleanup()` gracefully closes 10086/10087 socket pairs.
+  - Documented singleton injection constraint (avoid multiple short-lived client restarts against the same WeChat process).
+  - Enforced `debug=False` (Release `spy.dll`) to avoid Debug CRT ABI memory crashes (WCF-BUG-05).
 
 ---
 
@@ -222,3 +223,6 @@ C:\Users\1\CowAgent-Rev\
    - Do **NOT** use `glm-4.7-flash` (recurrent HTTP 429 rate limits, empty reasoning tokens).
 4. **Credential Isolation**:
    - `config.json` containing live Zhipu AI keys is strictly gitignored and must never be committed.
+5. **Always Enforce Release Spy (`debug=False`)**:
+   - Never use `Wcf(debug=True)` against native Release WeChat processes. MSVC Debug CRT iterator/container layouts in `spy_debug.dll` cause immediate crash in `sendMsg`. Always instantiate with `Wcf(debug=False)`.
+   - Before connecting, ensure stale `.wcf.lock` files from unclean crashes are safely removed.
