@@ -265,8 +265,32 @@ class WebServer:
                 return web.json_response({"status": "error", "message": "receiver and message required"}, status=400)
 
             ret = self.gateway.send_text(msg=message, receiver=receiver)
-            return web.json_response({"status": "success", "return_code": ret})
+            if ret != 0:
+                logger.error(f"Failed to send test message to {receiver}, return code: {ret}")
+                return web.json_response({
+                    "status": "error",
+                    "return_code": ret,
+                    "message": f"WCF 发送失败 (代码: {ret})"
+                }, status=500)
+
+            # Record message in isolated conversation memory so it displays in UI
+            self.memory.add_assistant_message(receiver, message)
+
+            # Broadcast turn to SSE clients so chat UI updates immediately
+            await self.broadcast_event("chat_turn", {
+                "session_id": receiver,
+                "role": "assistant",
+                "content": message,
+                "time": time.time(),
+            })
+
+            return web.json_response({
+                "status": "success",
+                "return_code": 0,
+                "message": "发送成功"
+            })
         except Exception as e:
+            logger.error(f"Exception in handle_test_send: {e}", exc_info=True)
             return web.json_response({"status": "error", "message": str(e)}, status=500)
 
     async def handle_debug_db(self, request: web.Request) -> web.Response:

@@ -182,7 +182,7 @@ class WcfGateway:
         with self._send_lock:
             try:
                 logger.info(f"Sending text to {receiver} ({len(msg)} chars)...")
-                status = self.wcf.send_text(msg=msg, receiver=receiver, at_list=at_list)
+                status = self.wcf.send_text(msg=msg, receiver=receiver, aters=at_list)
                 
                 # Notify outbound subscribers
                 for sub in list(self._outbound_subscribers):

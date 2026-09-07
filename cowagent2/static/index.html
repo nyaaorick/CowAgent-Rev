@@ -761,12 +761,9 @@
         const data = await res.json();
         if (data.status === 'success') {
           input.value = '';
-          // Reload conversation after a brief moment
-          setTimeout(() => {
-            if (currentContactId) loadSessionData(currentContactId);
-          }, 300);
+          loadSessionData(currentContactId);
         } else {
-          alert('发送失败: ' + data.message);
+          alert('发送失败: ' + (data.message || ('错误代码: ' + data.return_code)));
         }
       } catch (e) {
         alert('请求失败: ' + e);
