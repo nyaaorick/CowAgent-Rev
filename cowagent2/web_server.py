@@ -265,6 +265,11 @@ class WebServer:
         if not wcf:
             return web.json_response({"error": "wcf not ready"})
         try:
+            dbs = wcf.get_dbs() or []
+            if request.query.get("dbs"):
+                return web.json_response({"dbs": dbs})
+
+            db_target = request.query.get("db", "MSG0.db").strip()
             sql_param = request.query.get("sql", "").strip()
             q = request.query.get("q", "").strip()
             if sql_param:
@@ -274,9 +279,10 @@ class WebServer:
             else:
                 sql = "SELECT StrTalker, StrContent, IsSender, CreateTime FROM MSG WHERE StrTalker NOT LIKE '%@chatroom%' AND StrTalker != 'filehelper' ORDER BY CreateTime DESC LIMIT 25;"
 
-            rows = wcf.query_sql("MSG0.db", sql) or []
+            rows = wcf.query_sql(db_target, sql) or []
             return web.json_response({
                 "status": "success",
+                "db": db_target,
                 "count": len(rows),
                 "rows": rows,
             })

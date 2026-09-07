@@ -22,7 +22,11 @@ CowAgent 2 是专为 **Windows 原生微信 3.9.12.56 + WeChatFerry (WCF)** 打�
    - 实时监控微信运行状态与 WCF 连接健康度；
    - 动态扫描发现的微信好友与群聊，一键勾选/取消白名单与自动回复；
    - **Phase 2 实时监听**: 基于 SSE (Server-Sent Events) 实时监听对话流，在网页端以微信气泡样式静默观察对话，安全只读不干扰。
-6. **防 Wedge 单例通信守卫**:
+6. **底层修复与全量联系人三元绑定 (Full Contact Resolution)**:
+   - 彻底修复 WeChat 3.9.12.56 数据库句柄偏移问题 (`storage + 0x38`)，永久解锁 `MicroMsg.db`；
+   - 毫秒级提取并绑定 `wxid`（系统唯一标识）+ `微信号`（Alias）+ `显示名称/备注名`（Remark/NickName）；
+   - 详见底层技术修复文档 [`docs/WCF_WECHAT_3.9.12.56_REPAIR.md`](../docs/WCF_WECHAT_3.9.12.56_REPAIR.md) 与专有路线图 [`cowagent2/ROADMAP.md`](ROADMAP.md)。
+7. **防 Wedge 单例通信守卫**:
    - 强制使用 Release 版 `spy.dll` (`debug=False`)，彻底杜绝 MSVC Debug CRT 导致的崩溃 (`WCF-BUG-05`)；
    - 单进程守护连接，避免短命脚本频繁断连造成的 RPC 锁死 (`WCF-BUG-03`)。
 

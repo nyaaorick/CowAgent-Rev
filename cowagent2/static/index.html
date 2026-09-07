@@ -412,7 +412,7 @@
     <!-- Whitelist tab -->
     <section id="tab-whitelist" class="tab-content active">
       <div class="toolbar">
-        <input type="text" class="search-input" id="contact-search" placeholder="🔍 快速定位 WXID、群 ID 或备注名..." oninput="filterContacts()">
+        <input type="text" class="search-input" id="contact-search" placeholder="🔍 搜索 WXID、微信号(Alias)或显示名称..." oninput="filterContacts()">
         <div style="display: flex; gap: 8px;">
           <button class="btn" onclick="fetchContacts()">🔄 刷新列表</button>
           <button class="btn" style="border-color: var(--accent-blue); color: var(--accent-blue);" onclick="openAddContactModal()">➕ 添加联系人/群聊</button>
@@ -425,14 +425,15 @@
           <thead>
             <tr>
               <th style="width: 70px;">类型</th>
-              <th style="width: 320px;">微信唯一标识 (WXID / Room ID)</th>
-              <th>显示名称 / 备注</th>
-              <th style="width: 110px; text-align: center;">白名单准入</th>
-              <th style="width: 110px; text-align: center;">直接自动回复</th>
+              <th style="width: 270px;">微信唯一标识 (WXID / Room ID)</th>
+              <th style="width: 170px;">微信号 (Alias)</th>
+              <th>显示名称 / 备注名</th>
+              <th style="width: 100px; text-align: center;">白名单准入</th>
+              <th style="width: 100px; text-align: center;">自动回复</th>
             </tr>
           </thead>
           <tbody id="contacts-table-body">
-            <tr><td colspan="5" style="text-align: center; color: var(--text-secondary); padding: 30px;">正在加载联系人数据...</td></tr>
+            <tr><td colspan="6" style="text-align: center; color: var(--text-secondary); padding: 30px;">正在加载联系人数据...</td></tr>
           </tbody>
         </table>
       </div>
@@ -489,7 +490,7 @@
           btn.style.color = '';
         }, 1200);
       }).catch(() => {
-        prompt('请手动复制 WXID:', text);
+        prompt('请手动复制:', text);
       });
     }
 
@@ -558,7 +559,7 @@
     function renderContacts(contacts) {
       const tbody = document.getElementById('contacts-table-body');
       if (!contacts.length) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary); padding: 30px;">未发现可用联系人</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary); padding: 30px;">未发现可用联系人</td></tr>';
         return;
       }
 
@@ -566,8 +567,15 @@
         const typeBadge = c.is_group 
           ? '<span class="badge badge-blue">群聊</span>' 
           : '<span class="badge badge-wechat">好友</span>';
-        const name = c.name || c.nickname || c.remark || '-';
-        const aliasTag = c.alias ? `<span style="font-size: 0.75rem; color: #38bdf8; margin-left: 6px;">(微: ${escapeHtml(c.alias)})</span>` : '';
+        const displayName = (c.remark && c.remark !== c.name) 
+          ? `${escapeHtml(c.remark)} <span style="font-size: 0.75rem; color: var(--text-secondary); font-weight: normal;">(昵称: ${escapeHtml(c.name)})</span>`
+          : escapeHtml(c.remark || c.name || '-');
+        const aliasDisplay = c.alias 
+          ? `<div style="display: flex; align-items: center; gap: 6px;">
+               <code style="font-size: 0.85rem; font-weight: 600; color: #a78bfa; background: rgba(167, 139, 250, 0.1); padding: 2px 6px; border-radius: 4px; font-family: Consolas, monospace;">${escapeHtml(c.alias)}</code>
+               <button class="btn-copy" onclick="copyWxid('${escapeHtml(c.alias)}', this)" title="复制微信号">📋</button>
+             </div>`
+          : `<span style="color: var(--text-secondary); font-size: 0.8rem;">-</span>`;
         const isWhitelisted = c.is_whitelisted ? 'checked' : '';
         const isAutoReply = c.auto_reply ? 'checked' : '';
 
@@ -580,10 +588,10 @@
                 <button class="btn-copy" onclick="copyWxid('${escapeHtml(c.wxid)}', this)" title="复制 WXID">📋</button>
               </div>
             </td>
+            <td>${aliasDisplay}</td>
             <td>
               <div style="display: flex; align-items: center; gap: 6px;">
-                <span style="color: var(--text-primary); font-size: 0.85rem;">${escapeHtml(name)}</span>
-                ${aliasTag}
+                <span style="color: var(--text-primary); font-size: 0.85rem; font-weight: 500;">${displayName}</span>
                 <button class="btn-copy" onclick="editContactName('${escapeHtml(c.wxid)}', '${escapeHtml(c.name || '')}', '${escapeHtml(c.alias || '')}')" title="修改备注/微信号">✏️</button>
               </div>
             </td>
@@ -615,7 +623,7 @@
         (c.nickname && c.nickname.toLowerCase().includes(q)) || 
         (c.remark && c.remark.toLowerCase().includes(q)) || 
         (c.alias && c.alias.toLowerCase().includes(q)) || 
-        c.wxid.toLowerCase().includes(q)
+        (c.wxid && c.wxid.toLowerCase().includes(q))
       );
       renderContacts(filtered);
     }

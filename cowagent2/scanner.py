@@ -66,7 +66,8 @@ class ContactScanner:
         remark: str = "",
         is_group: bool = False,
         source: str = "runtime",
-        alias: str = ""
+        alias: str = "",
+        auto_save: bool = True
     ) -> Dict[str, Any]:
         """登记或更新联系人/群聊信息"""
         if not target_id:
@@ -87,11 +88,12 @@ class ContactScanner:
                 "first_seen": now,
                 "last_seen": now
             }
-            logger.info(f"扫描发现新会话 [{self.catalog[target_id]['type']}]: {display_name} ({target_id})")
+            if auto_save:
+                logger.info(f"扫描发现新会话 [{self.catalog[target_id]['type']}]: {display_name} ({target_id})")
         else:
             item = self.catalog[target_id]
             is_placeholder = not item.get("name") or item.get("name").startswith("联系人_") or item.get("name").startswith("群聊_")
-            if name and (is_placeholder or source == "manual"):
+            if name and (is_placeholder or source in ("manual", "micromsg_contact", "wcf_api")):
                 item["name"] = name
             if remark:
                 item["remark"] = remark
@@ -99,11 +101,12 @@ class ContactScanner:
                 item["alias"] = alias
             item["last_seen"] = now
 
-        self.save_cache()
+        if auto_save:
+            self.save_cache()
         return self.catalog[target_id]
 
     def scan_from_wcf(self, wcf) -> int:
-        """从运行中的 WCF 实例全面扫描可用联系人与群聊"""
+        """从运行中的 WCF 实例全面扫描可用联系人与群聊 (全量高效批处理)"""
         count_before = len(self.catalog)
         try:
             # 1. 扫描自身账号
@@ -115,58 +118,79 @@ class ContactScanner:
                     name=user_info.get("name", "我"),
                     remark="本机当前登录账号",
                     is_group=False,
-                    source="self"
+                    source="self",
+                    auto_save=False
                 )
 
-            # 2. 尝试从 WCF 原生 get_contacts 获取
-            contacts = wcf.get_contacts() or []
-            for c in contacts:
-                wxid = c.get("wxid")
-                if wxid:
-                    self.register_or_update(
-                        target_id=wxid,
-                        name=c.get("name", ""),
-                        remark=c.get("remark", ""),
-                        is_group=wxid.endswith("@chatroom"),
-                        source="wcf_api"
-                    )
-
-            # 3. 尝试从已打开数据库中的活跃 Talker 提取
+            # 2. 检查已打开的数据库
             dbs = wcf.get_dbs() or []
+
+            # 方案 2.1: 直接从 MicroMsg.db 的 Contact 表拉取全部联系人与群聊 (含真实微信号 Alias 和真实备注/昵称)
+            if "MicroMsg.db" in dbs:
+                try:
+                    sql = "SELECT UserName, Alias, Remark, NickName, Type FROM Contact WHERE UserName IS NOT NULL AND UserName != '';"
+                    rows = wcf.query_sql("MicroMsg.db", sql) or []
+                    for r in rows:
+                        u = r.get("UserName", "").strip()
+                        if not u or u == "filehelper":
+                            continue
+                        alias_val = r.get("Alias", "").strip()
+                        remark_val = r.get("Remark", "").strip()
+                        nick_val = r.get("NickName", "").strip()
+                        name_val = remark_val or nick_val or u
+                        self.register_or_update(
+                            target_id=u,
+                            name=name_val,
+                            remark=remark_val,
+                            alias=alias_val,
+                            is_group=u.endswith("@chatroom"),
+                            source="micromsg_contact",
+                            auto_save=False
+                        )
+                    logger.info(f"从 MicroMsg.db Contact 表批量读取完成: {len(rows)} 条记录")
+                except Exception as e:
+                    logger.warning(f"从 MicroMsg.db 读取联系人失败: {e}")
+
+            # 方案 2.2: 从 WCF 原生 get_contacts 获取并合并微信号 (code) 与昵称
+            try:
+                contacts = wcf.get_contacts() or []
+                for c in contacts:
+                    wxid = c.get("wxid", "").strip()
+                    if wxid:
+                        self.register_or_update(
+                            target_id=wxid,
+                            name=c.get("name", "").strip(),
+                            remark=c.get("remark", "").strip(),
+                            alias=c.get("code", "").strip(),
+                            is_group=wxid.endswith("@chatroom"),
+                            source="wcf_api",
+                            auto_save=False
+                        )
+            except Exception as e:
+                logger.debug(f"从 WCF get_contacts 扫描异常: {e}")
+
+            # 方案 2.3: 从 MSG 消息记录表直接提取最近活跃对话方
             if "MSG0.db" in dbs:
-                # 方案 3.1: 从 MSG 消息记录表直接提取最近对话的所有联系人与群聊 (包括自己发消息的好友)
                 try:
                     rows = wcf.query_sql("MSG0.db", "SELECT DISTINCT StrTalker FROM MSG ORDER BY CreateTime DESC LIMIT 200;") or []
                     for r in rows:
-                        talker = r.get("StrTalker")
+                        talker = r.get("StrTalker", "").strip()
                         if talker and len(talker) > 3 and talker != "filehelper":
                             self.register_or_update(
                                 target_id=talker,
                                 name="",
                                 is_group=talker.endswith("@chatroom"),
-                                source="db_history"
+                                source="db_history",
+                                auto_save=False
                             )
                 except Exception as e:
                     logger.debug(f"从 MSG 表查询 Talker 失败: {e}")
 
-                # 方案 3.2: 从 Name2ID 映射表拉取所有活跃 Talker
-                try:
-                    rows = wcf.query_sql("MSG0.db", "SELECT DISTINCT UsrName FROM Name2ID LIMIT 200;") or []
-                    for r in rows:
-                        talker = r.get("UsrName")
-                        if talker and len(talker) > 3 and talker != "filehelper":
-                            self.register_or_update(
-                                target_id=talker,
-                                name="",
-                                is_group=talker.endswith("@chatroom"),
-                                source="db_name2id"
-                            )
-                except Exception as e:
-                    logger.debug(f"从 Name2ID 查询 UsrName 失败: {e}")
-
         except Exception as e:
             logger.warning(f"扫描 WCF 联系人过程异常: {e}")
 
+        # 批处理完成，统一持久化一次缓存
+        self.save_cache()
         added = len(self.catalog) - count_before
         logger.info(f"扫描完成，新增发现 {added} 个会话，当前目录总计 {len(self.catalog)} 个")
         return len(self.catalog)
