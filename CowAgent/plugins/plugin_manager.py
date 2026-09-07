@@ -207,7 +207,7 @@ class PluginManager:
     # the macOS code-signature seal of the packaged .app. cow_cli stays enabled
     # so desktop chat commands (/status, /help, ...) keep working.
     DESKTOP_DISABLED_PLUGINS = {
-        "GODCMD", "KEYWORD", "BANWORDS", "ROLE", "DUNGEON", "HELLO", "FINISH",
+        "GODCMD", "KEYWORD", "BANWORDS", "ROLE",
     }
 
     def _apply_desktop_plugin_denylist(self):
@@ -347,14 +347,10 @@ class PluginManager:
         if name not in self.plugins:
             return False, "插件不存在"
         if name in [
-            "HELLO",
             "GODCMD",
             "ROLE",
-            "TOOL",
             "BDUNIT",
             "BANWORDS",
-            "FINISH",
-            "DUNGEON",
         ]:
             return False, "预置插件无法更新，请更新主程序仓库"
         dirname = self.plugins[name].path

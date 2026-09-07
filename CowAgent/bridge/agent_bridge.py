@@ -408,14 +408,15 @@ class AgentBridge:
         # Create helper instances
         self.initializer = AgentInitializer(bridge, self)
 
-        # Eager-start the scheduler so cron tasks fire without waiting
-        # for the first user message. init_scheduler is idempotent.
+        # Eager-start the scheduler if present
         try:
             from agent.tools.scheduler.integration import init_scheduler
             for profile in self.agent_registry.list(include_disabled=False):
                 if init_scheduler(self, profile.workspace, profile.id):
                     self.scheduler_agent_ids.add(profile.id)
             self.scheduler_initialized = bool(self.scheduler_agent_ids)
+        except ImportError:
+            pass
         except Exception as e:
             logger.warning(f"[AgentBridge] Eager scheduler init failed: {e}")
 
@@ -1028,12 +1029,16 @@ class AgentBridge:
                         try:
                             from agent.tools.scheduler.integration import attach_scheduler_to_tool
                             attach_scheduler_to_tool(tool, context)
+                        except ImportError:
+                            pass
                         except Exception as e:
                             logger.warning(f"[AgentBridge] Failed to attach context to scheduler: {e}")
                     elif tool.name == "agent_delegate":
                         try:
                             from agent.tools.agent_delegate.agent_delegate import attach_agent_delegate_to_tool
                             attach_agent_delegate_to_tool(tool, self, context)
+                        except ImportError:
+                            pass
                         except Exception as e:
                             logger.warning(f"[AgentBridge] Failed to attach delegation context: {e}")
                     elif tool.name in ("memory_search", "memory_get"):
@@ -1185,11 +1190,6 @@ class AgentBridge:
                 except Exception:
                     pass
 
-            # Post-message hot-reload: detect edits to ~/cow/mcp.json and
-            # sync any new/removed MCP tools into the live agent in the
-            # background. Off the critical path so user latency is unaffected;
-            # changes take effect on the user's next message.
-            self._schedule_mcp_hot_reload(agent)
 
             # Check if there are files to send (from send/read tool)
             if hasattr(agent, 'stream_executor') and hasattr(agent.stream_executor, 'files_to_send'):
@@ -1239,37 +1239,6 @@ class AgentBridge:
 
         finally:
             self._end_run(run_store, run_id, run_token, run_status, run_error)
-    
-    def _schedule_mcp_hot_reload(self, agent):
-        """
-        Fire-and-forget: detect mcp.json edits and reconcile the agent's
-        tool dict in the background. Runs after the user's reply is sent,
-        so any cost (file stat, hash, server boot) never adds to user latency.
-        Failures are isolated and never raise into the message pipeline.
-        """
-        import threading
-        from agent.tools import ToolManager
-        from common.runtime_identity import wrap
-
-        def _run():
-            try:
-                tm = ToolManager()
-                tm.refresh_mcp_if_changed()
-                added, removed = tm.sync_mcp_into_agent(agent)
-                if added or removed:
-                    logger.info(
-                        f"[AgentBridge] Agent tools synced — "
-                        f"added={added}, removed={removed}"
-                    )
-            except Exception as e:
-                logger.warning(f"[AgentBridge] MCP hot-reload failed (non-fatal): {e}")
-
-        # wrap carries the routed identity into the thread; without it this
-        # would reload the default Agent's mcp.json and sync its tools into
-        # whichever Agent actually served the message.
-        threading.Thread(
-            target=wrap(_run), daemon=True, name="mcp-hot-reload"
-        ).start()
 
     def _create_file_reply(self, file_info: dict, text_response: str, context: Context = None) -> Reply:
         """

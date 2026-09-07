@@ -48,13 +48,24 @@ def generate_session_title(user_message: str, assistant_reply: str = "",
         if assistant_reply:
             prompt_parts.append(f"Assistant: {assistant_reply[:300]}")
 
+        default_title_prompt = (
+            "Generate a very short title (max 15 characters for Chinese, max 6 words for English) "
+            "summarizing this conversation. Return ONLY the title text, nothing else.\n\n"
+            + "\n".join(prompt_parts)
+        )
+        try:
+            from agent.prompt.manager import get_prompt
+            title_prompt = get_prompt(
+                "chat_utils.title_generation.prompt",
+                fallback=default_title_prompt,
+                context="\n".join(prompt_parts),
+            )
+        except Exception:
+            title_prompt = default_title_prompt
+
         session = Session(session_id or "__title_gen__", system_prompt="")
         session.messages = [
-            {"role": "user", "content": (
-                "Generate a very short title (max 15 characters for Chinese, max 6 words for English) "
-                "summarizing this conversation. Return ONLY the title text, nothing else.\n\n"
-                + "\n".join(prompt_parts)
-            )}
+            {"role": "user", "content": title_prompt}
         ]
 
         result = bot.reply_text(session) or {}
@@ -162,6 +173,17 @@ def _load_optimize_prompt_template() -> str:
     Falls back to a built-in structured template if the file is missing,
     broken, or produces an empty result.
     """
+    try:
+        from agent.prompt.manager import get_prompt
+        global_config = get_prompt("chat_utils.optimize_prompt")
+        if isinstance(global_config, dict):
+            assembled = _assemble_optimize_prompt(global_config)
+            if assembled:
+                logger.info('[SessionService] Assembled optimize prompt from global PromptManager')
+                return assembled
+    except Exception:
+        pass
+
     template_path = os.path.join(os.path.dirname(__file__), 'prompts.json')
     try:
         with open(template_path, 'r', encoding='utf-8') as f:

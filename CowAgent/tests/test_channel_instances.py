@@ -3,7 +3,14 @@
 Two worlds must coexist: a legacy install driven by ``channel_type`` + flat
 credentials, and a multi-instance install driven by an explicit
 ``channel_instances`` list in the roster file. These tests pin the legacy
-behavior (so it never regresses) and cover the new persistence helpers.
+behavior (so it never regresses) and cover the persistence helpers.
+
+CowAgent-Rev runs WCF and the web console only, so ``CREDENTIAL_KEYS`` and
+``MULTI_INSTANCE_READY`` are both empty here. The cases that covered folding
+feishu / weixin / dingtalk flat credentials into per-instance records went with
+them: there is no longer a channel type for which that machinery does anything.
+What is left is the part that is still reachable -- id generation, legacy
+``channel_type`` parsing, and the upsert/remove/members helpers.
 """
 
 import os
@@ -83,86 +90,6 @@ def _write_instances(tmp_path, records):
     return team.resolve(base)
 
 
-def test_explicit_instances_win_over_legacy(tmp_path):
-    settings = _write_instances(
-        tmp_path,
-        [
-            {
-                "instance_id": "feishu-a",
-                "channel_type": "feishu",
-                "agent_id": "default",
-                "credentials": {"feishu_app_id": "A", "feishu_app_secret": "sa"},
-            },
-            {
-                "instance_id": "feishu-b",
-                "channel_type": "feishu",
-                "agent_id": "ops",
-                "credentials": {"feishu_app_id": "B", "feishu_app_secret": "sb"},
-            },
-        ],
-    )
-    settings["channel_type"] = "feishu"  # legacy field present but ignored
-    insts = ci.resolve_channel_instances(settings)
-    by_id = {i.instance_id: i for i in insts}
-    assert set(by_id) == {"feishu-a", "feishu-b"}
-    assert by_id["feishu-a"].agent_id == "default"
-    assert by_id["feishu-b"].agent_id == "ops"
-    assert by_id["feishu-a"].credentials["feishu_app_id"] == "A"
-    assert all(i.legacy is False for i in insts)
-
-
-def test_explicit_only_known_credential_keys_kept(tmp_path):
-    settings = _write_instances(
-        tmp_path,
-        [
-            {
-                "instance_id": "feishu-a",
-                "channel_type": "feishu",
-                "credentials": {"feishu_app_id": "A", "junk": "x"},
-            }
-        ],
-    )
-    inst = ci.resolve_channel_instances(settings)[0]
-    assert "feishu_app_id" in inst.credentials
-    assert "junk" not in inst.credentials
-
-
-# ---------------------------------------------------------------------------
-# persistence helpers: upsert / update / remove
-# ---------------------------------------------------------------------------
-
-def test_upsert_creates_with_generated_id(tmp_path):
-    settings = {"agent_workspace": str(tmp_path)}
-    inst = ci.upsert_instance(
-        settings,
-        channel_type="feishu",
-        agent_id="agent-x",
-        credentials={"feishu_app_id": "A", "feishu_app_secret": "B", "junk": "no"},
-    )
-    assert inst.instance_id.startswith("feishu-")
-    assert inst.agent_id == "agent-x"
-    assert inst.credentials == {"feishu_app_id": "A", "feishu_app_secret": "B"}
-    assert ci.read_raw_instances(settings)[0]["instance_id"] == inst.instance_id
-
-
-def test_upsert_partial_update_keeps_binding(tmp_path):
-    settings = {"agent_workspace": str(tmp_path)}
-    inst = ci.upsert_instance(
-        settings, channel_type="feishu", agent_id="agent-x",
-        credentials={"feishu_app_id": "A", "feishu_app_secret": "B"},
-    )
-    # update credentials only, without re-sending agent_id
-    updated = ci.upsert_instance(
-        settings, channel_type="feishu", instance_id=inst.instance_id,
-        credentials={"feishu_app_secret": "B2"},
-    )
-    assert updated.agent_id == "agent-x"  # binding preserved
-    assert updated.credentials["feishu_app_secret"] == "B2"
-    assert updated.credentials["feishu_app_id"] == "A"  # old value preserved
-    # exactly one record: it was updated, not duplicated
-    assert len(ci.read_raw_instances(settings)) == 1
-
-
 def test_upsert_honors_provided_id(tmp_path):
     settings = {"agent_workspace": str(tmp_path)}
     inst = ci.upsert_instance(
@@ -234,23 +161,6 @@ def test_upsert_sets_and_preserves_members(tmp_path):
 # first time the roster file is written (crossing into multi-Agent mode)
 # ---------------------------------------------------------------------------
 
-def test_bootstrap_synthesizes_feishu_from_flat_credentials(tmp_path):
-    settings = {
-        "agent_workspace": str(tmp_path),
-        "channel_type": "feishu",
-        "feishu_app_id": "APP",
-        "feishu_app_secret": "SECRET",
-        "default_agent_id": "primary",
-    }
-    records = ci.bootstrap_legacy_instances(settings, {}, "primary")
-    assert len(records) == 1
-    rec = records[0]
-    assert rec["instance_id"] == "feishu"
-    assert rec["channel_type"] == "feishu"
-    assert rec["agent_id"] == "primary"
-    assert rec["credentials"] == {"feishu_app_id": "APP", "feishu_app_secret": "SECRET"}
-
-
 def test_bootstrap_is_idempotent_when_feishu_record_exists(tmp_path):
     settings = {
         "agent_workspace": str(tmp_path),
@@ -283,70 +193,3 @@ def test_bootstrap_ignores_non_multi_instance_types(tmp_path):
         "wechatcomapp_secret": "sec",
     }
     assert ci.bootstrap_legacy_instances(settings, {}, "primary") == []
-
-
-def test_bootstrap_folds_multi_instance_types_beyond_feishu(tmp_path):
-    # dingtalk is now multi-instance ready, so a legacy flat dingtalk config is
-    # carried into a channel_instances record when crossing into multi-Agent
-    # mode (otherwise multi-Agent startup, which skips the flat config entry for
-    # multi-instance types, would drop it).
-    settings = {
-        "agent_workspace": str(tmp_path),
-        "channel_type": "dingtalk",
-        "dingtalk_client_id": "id",
-        "dingtalk_client_secret": "sec",
-    }
-    records = ci.bootstrap_legacy_instances(settings, {}, "primary")
-    assert len(records) == 1
-    assert records[0]["channel_type"] == "dingtalk"
-    assert records[0]["agent_id"] == "primary"
-    assert records[0]["credentials"]["dingtalk_client_id"] == "id"
-
-
-def test_bootstrap_carries_weixin_token_file_to_instance_path(tmp_path, monkeypatch):
-    # A scan-login Weixin user keeps their token in a credentials file, not in
-    # config.json. Bootstrapping must copy that file to the per-instance path so
-    # the user is not forced to re-scan after adding an Agent.
-    import config
-
-    legacy = tmp_path / "weixin_creds.json"
-    legacy.write_text('{"token": "SCAN_TOKEN"}', encoding="utf-8")
-
-    def fake_path(instance_id=""):
-        if not instance_id:
-            return str(legacy)
-        root, ext = os.path.splitext(str(legacy))
-        return f"{root}.{instance_id}{ext}"
-
-    monkeypatch.setattr(config, "get_weixin_credentials_path", fake_path)
-
-    settings = {
-        "agent_workspace": str(tmp_path),
-        "channel_type": "weixin",
-        "weixin_token": "",  # empty: token lives in the file, not config
-    }
-    records = ci.bootstrap_legacy_instances(settings, {}, "primary")
-    assert any(r["channel_type"] == "weixin" for r in records)
-    carried = tmp_path / "weixin_creds.weixin.json"
-    assert carried.exists()
-    assert "SCAN_TOKEN" in carried.read_text(encoding="utf-8")
-
-
-def test_write_bootstraps_feishu_on_first_roster_write(tmp_path):
-    """team.write folds a legacy flat feishu channel into channel_instances."""
-    from agent import team
-
-    settings = {
-        "agent_workspace": str(tmp_path),
-        "channel_type": "feishu",
-        "feishu_app_id": "APP",
-        "feishu_app_secret": "SECRET",
-        "default_agent_id": "primary",
-    }
-    team.write(settings, {"default_agent_id": "primary", "agents": []})
-    resolved = team.resolve(settings)
-    insts = ci.resolve_channel_instances(resolved)
-    by_type = [i for i in insts if i.channel_type == "feishu"]
-    assert len(by_type) == 1
-    assert by_type[0].agent_id == "primary"
-    assert by_type[0].credentials["feishu_app_id"] == "APP"

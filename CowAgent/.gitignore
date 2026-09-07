@@ -70,3 +70,4 @@ desktop/resources/.icon-work/
 desktop/resources/bin/
 
 .wrangler/
+wcf/*.json

@@ -54,57 +54,10 @@ def new_instance_id(channel_type: str, taken: Iterable[str] = ()) -> str:
 # keys are copied into a per-instance override; everything else (ports, feature
 # flags) stays global in conf(). Keep in sync with the channel classes' cfg()
 # reads. Extend as more channel types gain multi-instance support.
-CREDENTIAL_KEYS: Dict[str, tuple] = {
-    const.FEISHU: (
-        "feishu_app_id",
-        "feishu_app_secret",
-        "feishu_token",
-        "feishu_bot_name",
-    ),
-    const.DINGTALK: (
-        "dingtalk_client_id",
-        "dingtalk_client_secret",
-        "dingtalk_robot_code",
-    ),
-    const.WECOM_BOT: (
-        "wecom_bot_id",
-        "wecom_bot_secret",
-        "wecom_bot_token",
-        "wecom_bot_encoding_aes_key",
-    ),
-    const.WEIXIN: (
-        "weixin_token",
-        "weixin_base_url",
-    ),
-    const.QQ: (
-        "qq_app_id",
-        "qq_app_secret",
-    ),
-    const.TELEGRAM: (
-        "telegram_token",
-    ),
-    const.SLACK: (
-        "slack_bot_token",
-        "slack_app_token",
-    ),
-    const.DISCORD: (
-        "discord_token",
-    ),
-}
+CREDENTIAL_KEYS: Dict[str, tuple] = {}
 
-# Channel types that actually support running more than one instance today.
-# Others may appear in channel_instances but will run as a single instance
-# (their @singleton is not yet bypassed); we log and fall back gracefully.
-MULTI_INSTANCE_READY = frozenset({
-    const.FEISHU,
-    const.DINGTALK,
-    const.QQ,
-    const.TELEGRAM,
-    const.SLACK,
-    const.DISCORD,
-    const.WEIXIN,
-    const.WECOM_BOT,
-})
+# In CowAgent-Rev, only WCF and Web console are active.
+MULTI_INSTANCE_READY = frozenset()
 
 
 @dataclass(frozen=True)

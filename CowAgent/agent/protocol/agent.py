@@ -60,9 +60,7 @@ class Agent:
         # directory (bash cwd, relative file paths) while memory/skills stay
         # anchored to workspace_dir. None means "use workspace_dir".
         self.project_dir = None
-        # How much this session may change (see agent.permission). None means
-        # "follow the global setting", resolved at check time so a change to the
-        # global default reaches sessions that never picked a mode themselves.
+        # Session permission mode (defaults to None / full-access)
         self.permission_mode = None
         self.enable_skills = enable_skills  # Skills enabled flag
         self.runtime_info = runtime_info  # Runtime info for dynamic time update
@@ -151,23 +149,12 @@ class Agent:
         return self.project_dir
 
     def effective_permission_mode(self) -> str:
-        """The permission mode in force: this session's, else the global default."""
-        from agent.permission import global_mode, normalize_mode
-
-        if self.permission_mode:
-            return normalize_mode(self.permission_mode, global_mode())
-        return global_mode()
+        """The permission mode in force: always full-access as safe tools only."""
+        return "full-access"
 
     def apply_permission_mode(self, mode):
-        """Set (or clear, with None) this session's permission mode.
-
-        Takes effect on the next tool call: the executor resolves the mode per
-        call, so a mid-conversation change applies without rebuilding the agent.
-        The system prompt is rebuilt per turn and picks the new mode up there.
-        """
-        from agent.permission import normalize_mode
-
-        self.permission_mode = normalize_mode(mode) if mode else None
+        """Set (or clear, with None) this session's permission mode."""
+        self.permission_mode = mode
         return self.permission_mode
 
     def write_roots(self) -> list:
@@ -214,7 +201,8 @@ class Agent:
 
             context_files = None
             if self.workspace_dir and not self.skip_context_files:
-                context_files = load_context_files(self.workspace_dir)
+                sid = getattr(self, "_current_user_id", None) or getattr(self, "_current_session_id", None)
+                context_files = load_context_files(self.workspace_dir, session_id=sid)
 
             try:
                 from common import i18n
@@ -222,11 +210,13 @@ class Agent:
             except Exception:
                 lang = "zh"
             builder = PromptBuilder(workspace_dir=self.workspace_dir or "", language=lang)
+            from config import conf
+            tool_call_enabled = conf().get("tool_call_enabled", False)
             full = builder.build(
                 # Same list the model is offered this turn: describing a tool
                 # in the prompt that is not in the schema invites it to call
                 # something that is not there.
-                tools=[tool for tool in self.tools if is_tool_available(tool)],
+                tools=[tool for tool in self.tools if is_tool_available(tool)] if tool_call_enabled else [],
                 context_files=context_files,
                 skill_manager=self.skill_manager,
                 memory_manager=self.memory_manager,

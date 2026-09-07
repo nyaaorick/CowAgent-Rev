@@ -1009,6 +1009,22 @@ def build_website_prompt(workspace_dir: str) -> list:
     if not base_url:
         return []
 
+    try:
+        from agent.prompt.manager import get_prompt
+        cfg = get_prompt("cloud.website_sharing", base_url=base_url)
+        if cfg and isinstance(cfg, dict):
+            lines = [
+                cfg.get("title", "**文件分享与网页生成规则** (非常重要 — 当前为云部署模式):"),
+                "",
+                cfg.get("prefix_template", f"云端已为工作空间的 `websites/` 目录配置好公网路由映射，访问地址前缀为: `{base_url}`"),
+                "",
+                *cfg.get("rules", []),
+                "",
+            ]
+            return lines
+    except Exception:
+        pass
+
     return [
         "**文件分享与网页生成规则** (非常重要 — 当前为云部署模式):",
         "",

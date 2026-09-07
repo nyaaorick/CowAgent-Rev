@@ -112,7 +112,7 @@ class AgentInitializer:
         )
         
         # Load context files
-        context_files = load_context_files(workspace_root)
+        context_files = load_context_files(workspace_root, session_id=session_id)
         
         # Initialize skill manager
         skill_manager = self._initialize_skill_manager(workspace_root, session_id)
@@ -126,8 +126,11 @@ class AgentInitializer:
             session_id, profile.id, host_profile.id
         )
         
+        from agent.tools.base_tool import is_tool_available
+        from config import conf
+        tool_call_enabled = conf().get("tool_call_enabled", False)
         system_prompt = prompt_builder.build(
-            tools=tools,
+            tools=[tool for tool in tools if is_tool_available(tool)] if tool_call_enabled else [],
             context_files=context_files,
             skill_manager=skill_manager,
             memory_manager=memory_manager,
@@ -161,6 +164,10 @@ class AgentInitializer:
         agent.agent_id = profile.id
         agent.agent_profile = profile
         agent.workspace_dir = workspace_root
+        if session_id:
+            agent._current_session_id = session_id
+            from agent.memory.identity import sanitize_owner_id
+            agent._current_user_id = sanitize_owner_id(session_id)
 
         # Bind the system-prompt model line to the agent's *effective* model so a
         # per-session override (see AgentLLMModel.set_session_override) shows up
@@ -418,17 +425,26 @@ class AgentInitializer:
             # owning where every Agent's memory is written.
             register_memory_config(memory_config)
 
-            embedding_provider = self._init_embedding_provider(
-                memory_config, session_id=session_id
-            )
+            embedding_enabled = conf().get("embedding_enabled", False)
+            memory_search_enabled = conf().get("memory_search_enabled", False)
+
+            embedding_provider = None
+            if embedding_enabled:
+                embedding_provider = self._init_embedding_provider(
+                    memory_config, session_id=session_id
+                )
 
             memory_manager = MemoryManager(memory_config, embedding_provider=embedding_provider)
-            self._sync_memory(memory_manager, session_id)
+            if embedding_enabled:
+                self._sync_memory(memory_manager, session_id)
 
-            memory_tools = [
-                MemorySearchTool(memory_manager),
-                MemoryGetTool(memory_manager)
-            ]
+            if memory_search_enabled:
+                memory_tools = [
+                    MemorySearchTool(memory_manager),
+                    MemoryGetTool(memory_manager)
+                ]
+            else:
+                memory_tools = []
             
             if session_id is None:
                 logger.info("[AgentInitializer] Memory system initialized")
@@ -520,51 +536,10 @@ class AgentInitializer:
                         logger.debug("[AgentInitializer] WebSearch skipped - no search provider configured")
                         continue
 
-                # Skip evolution_undo when self-evolution is disabled: with no
-                # evolution there is nothing to roll back, so the tool is dead weight.
-                if tool_name == "evolution_undo":
-                    from agent.evolution.config import get_evolution_config
-                    if not get_evolution_config().enabled:
-                        logger.debug("[AgentInitializer] evolution_undo skipped - self-evolution disabled")
-                        continue
-
-                if tool_name == "agent_delegate":
-                    delegation = conf().get("agent_delegation", {})
-                    enabled = delegation is not False and (
-                        not isinstance(delegation, dict)
-                        or delegation.get("enabled", True)
-                    )
-                    enabled_agents = self.agent_bridge.agent_registry.list(
-                        include_disabled=False
-                    )
-                    # Delegation only makes sense once a conversation actually has
-                    # teammates in it. A solo chat - even on an instance with many
-                    # Agents defined - should not carry the tool, so a lone Agent
-                    # never tries to hand work to someone who was not invited.
-                    shared = self._is_shared_conversation(
-                        session_id or "", host_agent_id or ""
-                    )
-                    if not enabled or len(enabled_agents) < 2 or not shared:
-                        logger.debug(
-                            "[AgentInitializer] agent_delegate skipped - "
-                            "needs a shared conversation with 2+ Agents"
-                        )
-                        continue
-
-                # Special handling for EnvConfig tool
-                if tool_name == "env_config":
-                    from agent.tools import EnvConfig
-                    tool = EnvConfig({"agent_bridge": self.agent_bridge})
-                else:
-                    tool = tool_manager.create_tool(tool_name)
+                tool = tool_manager.create_tool(tool_name)
 
                 if tool:
-                    # Apply workspace config to file operation tools.
-                    # Merge into the existing tool.config (set by ToolManager from
-                    # config.json's `tools.<name>` section) instead of replacing
-                    # it, otherwise per-tool user configs (e.g. browser.cdp_endpoint)
-                    # would be silently dropped.
-                    if tool_name in ['read', 'write', 'edit', 'bash', 'search_files', 'ls', 'web_fetch', 'send']:
+                    if tool_name in ['web_fetch', 'send']:
                         merged_config = dict(getattr(tool, 'config', None) or {})
                         merged_config.update(file_config)
                         tool.config = merged_config
@@ -593,17 +568,6 @@ class AgentInitializer:
                     tools.append(tool)
             except Exception as e:
                 logger.warning(f"[AgentInitializer] Failed to load tool {tool_name}: {e}")
-
-        # Add MCP tools (snapshot to avoid races with the background loader)
-        mcp_tools_snapshot = list(tool_manager._mcp_tool_instances.items())
-        if mcp_tools_snapshot:
-            for _, mcp_tool in mcp_tools_snapshot:
-                tools.append(mcp_tool)
-            if session_id is None:
-                names = [name for name, _ in mcp_tools_snapshot]
-                logger.info(
-                    f"[AgentInitializer] Added {len(names)} MCP tool(s): {names}"
-                )
 
         # Add memory tools
         if memory_tools:
@@ -646,6 +610,8 @@ class AgentInitializer:
                                     f"[AgentInitializer] Scheduler initialized "
                                     f"for agent={agent_id}"
                                 )
+                    except ImportError:
+                        pass
                     except Exception as e:
                         logger.warning(f"[AgentInitializer] Failed to initialize scheduler: {e}")
         
@@ -939,18 +905,22 @@ class AgentInitializer:
             t.join(timeout=60)
 
         # Phase 2: Deep Dream — distill daily memories → MEMORY.md + dream diary
-        # One dream per (agent, memory owner): distilling two people's days into
-        # a single MEMORY.md is exactly the leak the per-owner split prevents.
-        for (agent_id, owner), dream_candidate in dream_candidates.items():
-            try:
-                result = dream_candidate.deep_dream(user_id=owner)
-                if result:
-                    logger.info(
-                        f"[DeepDream] Memory distillation completed for "
-                        f"agent={agent_id} owner={owner or 'shared'}"
+        from config import conf
+        if conf().get("deep_dream_enabled", False):
+            # One dream per (agent, memory owner): distilling two people's days into
+            # a single MEMORY.md is exactly the leak the per-owner split prevents.
+            for (agent_id, owner), dream_candidate in dream_candidates.items():
+                try:
+                    result = dream_candidate.deep_dream(user_id=owner)
+                    if result:
+                        logger.info(
+                            f"[DeepDream] Memory distillation completed for "
+                            f"agent={agent_id} owner={owner or 'shared'}"
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"[DeepDream] Failed for agent={agent_id} "
+                        f"owner={owner or 'shared'}: {e}"
                     )
-            except Exception as e:
-                logger.warning(
-                    f"[DeepDream] Failed for agent={agent_id} "
-                    f"owner={owner or 'shared'}: {e}"
-                )
+        else:
+            logger.debug("[DeepDream] deep_dream_enabled is false, skipping scheduled distillation")

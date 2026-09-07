@@ -14,6 +14,7 @@ from typing import Optional, Callable, Any, List, Dict
 from pathlib import Path
 from datetime import datetime
 from common.log import logger
+from agent.prompt.manager import get_prompt
 
 
 SUMMARIZE_SYSTEM_PROMPT_ZH = """你是一个对话记录助手。请将对话内容归纳为当天的日常记录。
@@ -167,19 +168,27 @@ def _is_en() -> bool:
 
 
 def _summarize_system_prompt() -> str:
-    return SUMMARIZE_SYSTEM_PROMPT_EN if _is_en() else SUMMARIZE_SYSTEM_PROMPT_ZH
+    lang = "en" if _is_en() else "zh"
+    fb = SUMMARIZE_SYSTEM_PROMPT_EN if _is_en() else SUMMARIZE_SYSTEM_PROMPT_ZH
+    return get_prompt("memory_summarizer.summarize_system", lang=lang, fallback=fb)
 
 
 def _summarize_user_prompt() -> str:
-    return SUMMARIZE_USER_PROMPT_EN if _is_en() else SUMMARIZE_USER_PROMPT_ZH
+    lang = "en" if _is_en() else "zh"
+    fb = SUMMARIZE_USER_PROMPT_EN if _is_en() else SUMMARIZE_USER_PROMPT_ZH
+    return get_prompt("memory_summarizer.summarize_user", lang=lang, fallback=fb)
 
 
 def _dream_system_prompt() -> str:
-    return DREAM_SYSTEM_PROMPT_EN if _is_en() else DREAM_SYSTEM_PROMPT_ZH
+    lang = "en" if _is_en() else "zh"
+    fb = DREAM_SYSTEM_PROMPT_EN if _is_en() else DREAM_SYSTEM_PROMPT_ZH
+    return get_prompt("memory_summarizer.dream_system", lang=lang, fallback=fb)
 
 
 def _dream_user_prompt() -> str:
-    return DREAM_USER_PROMPT_EN if _is_en() else DREAM_USER_PROMPT_ZH
+    lang = "en" if _is_en() else "zh"
+    fb = DREAM_USER_PROMPT_EN if _is_en() else DREAM_USER_PROMPT_ZH
+    return get_prompt("memory_summarizer.dream_user", lang=lang, fallback=fb)
 
 
 def _is_empty_sentinel(text: str) -> bool:
@@ -455,11 +464,11 @@ class MemoryFlushManager:
         if not force:
             try:
                 from config import conf
-                if not conf().get("deep_dream_enabled", True):
+                if not conf().get("deep_dream_enabled", False):
                     logger.info("[DeepDream] deep_dream_enabled=false, skipping")
                     return False
             except Exception:
-                pass
+                return False
 
         if not self.llm_model:
             logger.warning("[DeepDream] No LLM model available, skipping")

@@ -170,13 +170,40 @@ def parse_template(content: str, fallback_name: str, source: str) -> Optional[Su
     )
 
 
+def get_builtin_templates() -> tuple[SubagentTemplate, ...]:
+    """Load builtin subagent templates with prompts dynamically resolved from PromptManager."""
+    try:
+        from agent.prompt.manager import get_prompt
+        gp_desc = get_prompt("subagent.general_purpose.description", fallback=GENERAL_PURPOSE.description)
+        gp_prompt = get_prompt("subagent.general_purpose.prompt", fallback=GENERAL_PURPOSE.prompt)
+        ex_desc = get_prompt("subagent.explore.description", fallback=EXPLORE.description)
+        ex_prompt = get_prompt("subagent.explore.prompt", fallback=EXPLORE.prompt)
+        gp = SubagentTemplate(
+            name=GENERAL_PURPOSE.name,
+            description=gp_desc,
+            prompt=gp_prompt,
+            tools=GENERAL_PURPOSE.tools,
+            source=GENERAL_PURPOSE.source,
+        )
+        ex = SubagentTemplate(
+            name=EXPLORE.name,
+            description=ex_desc,
+            prompt=ex_prompt,
+            tools=EXPLORE.tools,
+            source=EXPLORE.source,
+        )
+        return (gp, ex)
+    except Exception:
+        return BUILTIN_TEMPLATES
+
+
 def load_templates(workspace_dir: Optional[str] = None) -> Dict[str, SubagentTemplate]:
     """Built-in types plus any the user defined, keyed by name.
 
     A user file reusing a built-in name replaces it, which is how a built-in
     gets customized rather than worked around.
     """
-    templates: Dict[str, SubagentTemplate] = {t.name: t for t in BUILTIN_TEMPLATES}
+    templates: Dict[str, SubagentTemplate] = {t.name: t for t in get_builtin_templates()}
 
     from common.state_dir import subagents_dir
 

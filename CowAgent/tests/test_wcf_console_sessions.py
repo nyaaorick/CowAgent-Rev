@@ -124,6 +124,48 @@ def test_a_wechat_conversation_reads_back_in_full():
         assert "我是电子鹦鹉" in texts
 
 
+def test_load_history_page_preserves_leading_assistant_messages():
+    """Messages sent by the operator to a contact before any user message must
+    not be dropped by turn grouping."""
+    with tempfile.TemporaryDirectory() as tmp:
+        store = _store(tmp)
+        store.append_messages(
+            "wxid_bob",
+            [
+                {"role": "assistant", "content": "你好，我是客服"},
+                {"role": "assistant", "content": "请问有什么可以帮您？"},
+            ],
+            channel_type="wcf",
+        )
+        page = store.load_history_page("wxid_bob", page=1, page_size=20)
+        assert page["total"] == 2
+        assert len(page["messages"]) == 2
+        assert page["messages"][0]["role"] == "assistant"
+        assert page["messages"][0]["content"] == "你好，我是客服"
+        assert page["messages"][1]["role"] == "assistant"
+        assert page["messages"][1]["content"] == "请问有什么可以帮您？"
+
+
+def test_load_history_page_preserves_consecutive_assistant_messages_after_user():
+    """Multiple operator messages following a user message should each be their
+    own turn, not collapsed into the last one."""
+    with tempfile.TemporaryDirectory() as tmp:
+        store = _store(tmp)
+        store.append_messages(
+            "wxid_bob",
+            [
+                {"role": "user", "content": "在吗"},
+                {"role": "assistant", "content": "在的"},
+                {"role": "assistant", "content": "有什么事吗"},
+            ],
+            channel_type="wcf",
+        )
+        page = store.load_history_page("wxid_bob", page=1, page_size=20)
+        assert page["total"] == 3
+        assert [m["content"] for m in page["messages"]] == ["在吗", "在的", "有什么事吗"]
+
+
+
 # --------------------------------------------------------- what the console asks
 def test_the_console_lists_web_and_wechat_but_not_every_channel():
     from channel.web.web_channel import CONSOLE_SESSION_CHANNELS

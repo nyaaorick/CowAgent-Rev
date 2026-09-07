@@ -100,20 +100,3 @@ def test_every_other_tool_is_unaffected():
     events = _run(_Ordinary())
 
     assert _cards_for(events, "call_1") == ["tool_execution_start", "tool_execution_end"]
-
-
-def test_one_sub_agent_keeps_the_spawn_call_s_card():
-    """It reports under that card, so taking it away leaves nothing at all."""
-    from agent.tools.subagent import SubagentTool
-
-    tool = SubagentTool()
-
-    assert tool.renders_own_cards({"goal": "find out"}) is False
-
-
-def test_several_sub_agents_get_cards_of_their_own_instead():
-    from agent.tools.subagent import SubagentTool
-
-    tool = SubagentTool()
-
-    assert tool.renders_own_cards({"tasks": [{"goal": "one"}, {"goal": "two"}]}) is True

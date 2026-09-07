@@ -8,7 +8,11 @@ class Session(object):
         self.session_id = session_id
         self.messages = []
         if system_prompt is None:
-            self.system_prompt = conf().get("character_desc", "")
+            try:
+                from agent.prompt.manager import get_prompt
+                self.system_prompt = get_prompt("legacy.character_desc", fallback=conf().get("character_desc", ""))
+            except Exception:
+                self.system_prompt = conf().get("character_desc", "")
         else:
             self.system_prompt = system_prompt
 

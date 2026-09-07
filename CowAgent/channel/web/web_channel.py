@@ -36,11 +36,19 @@ from config import (
     sync_image_generation_custom_provider_env,
 )
 from models.reasoning_capabilities import provider_reasoning_metadata
-from agent.permission import (
-    MODES as PERMISSION_MODES,
-    global_mode as permission_global_mode,
-    normalize_mode as permission_normalize_mode,
+
+# web.application resolves a handler by class name against this module's
+# globals, so a handler defined elsewhere has to be imported here for its route
+# to bind. The address-book endpoints themselves live in contacts_api.
+from channel.web.contacts_api import (  # noqa: F401  (bound by name in urls)
+    ContactProfileHandler,
+    ContactsHandler,
+    ContactsScanHandler,
+    ContactsToggleHandler,
 )
+PERMISSION_MODES = ("full-access",)
+permission_global_mode = lambda: "full-access"
+permission_normalize_mode = lambda v, default="full-access": "full-access"
 
 # Channels whose conversations the console's list shows. "web" is the console's
 # own; "wcf" is the WeChat bot, mirrored in so the operator can watch a chat the
@@ -499,84 +507,6 @@ def _build_artifact_payload(data: dict) -> dict:
         "raw_url": f"/api/file?path={quote(file_path)}",
         "preview_url": _build_preview_url(file_path),
     }
-
-
-def _paths_written_by_step(step: dict) -> list:
-    """Files a persisted tool step produced, if any.
-
-    `write`/`edit` name theirs in the arguments. A `subagent` step lists the
-    ones its sub agents wrote in its result: those files never passed through
-    a tool call of this agent's own, so nothing else records them.
-    """
-    name = step.get("name")
-    if name in ("write", "edit"):
-        args = step.get("arguments")
-        path = str((args or {}).get("path") or "").strip() if isinstance(args, dict) else ""
-        return [path] if path else []
-    if name != "subagent":
-        return []
-    try:
-        results = json.loads(step.get("result") or "{}").get("results") or []
-    except (ValueError, TypeError, AttributeError):
-        return []
-    return [
-        path
-        for item in results if isinstance(item, dict)
-        for path in (item.get("files") or [])
-    ]
-
-
-def _artifacts_from_steps(steps, session_id: str = None, agent_id: str = None) -> list:
-    """
-    Rebuild the artifact cards of a persisted assistant message.
-
-    History replay has no SSE events, so the tool calls are the only record.
-    Doing this server-side keeps one implementation of the workspace-internal
-    filter — and lets absolute paths inside the workspace be recognised, which
-    a client mirroring the rules can't do.
-
-    ``session_id`` anchors detection to the session's working dir (the project
-    dir when one is open), matching the live SSE path; otherwise state_root.
-    """
-    from agent.protocol.artifact import get_workspace_root, safe_build_artifact
-
-    out = []
-    seen = set()
-    root = None
-    for step in steps or []:
-        if not isinstance(step, dict) or step.get("type") != "tool" or step.get("is_error"):
-            continue
-        for path in _paths_written_by_step(step):
-            if root is None:
-                root = _get_workspace_root(session_id, agent_id) if session_id else get_workspace_root()
-            info = safe_build_artifact(path, root)
-            if not info or info["path"] in seen:
-                continue
-            seen.add(info["path"])
-            payload = _build_artifact_payload(info)
-            if payload:
-                out.append(payload)
-    return out
-
-
-def _add_subagent_displays(steps) -> None:
-    """Give persisted `subagent` steps the same readable form they had live.
-
-    `display` is deliberately kept out of the model's context, so it is not in
-    the stored conversation either. Rebuilding it here means a reloaded page
-    shows the sub agents' reports rather than the JSON the model was handed.
-    """
-    from agent.tools.subagent import format_results
-
-    for step in steps or []:
-        if not isinstance(step, dict) or step.get("name") != "subagent":
-            continue
-        try:
-            results = json.loads(step.get("result") or "{}").get("results")
-        except (ValueError, TypeError, AttributeError):
-            continue
-        if isinstance(results, list) and results:
-            step["display"] = format_results(results)
 
 
 def _sanitize_upload_relative_path(relative_path: str) -> str:
@@ -1321,23 +1251,32 @@ class WebChannel(ChatChannel):
             )
             prompt = json_data.get('message', '')
 
-            # A conversation the agent is holding on WeChat is displayed in the
-            # console, not continued from it: the reply would stream to this
-            # browser while the contact went on waiting in WeChat, and the
-            # console-typed turn would be written into their history. The
-            # composer is disabled client-side, but session_id arrives in the
-            # request body, so the rule has to hold here too.
-            if _is_read_only_session(session_id, resolved_agent_id):
-                logger.info(
-                    f"[WebChannel] refused a console message to read-only "
-                    f"session={session_id} (answered from its own channel)"
+            # A conversation with a WeChat contact is not answered by the agent
+            # from here -- the reply would stream to this browser while the
+            # contact went on waiting in WeChat. It is carried across instead:
+            # what the operator typed is sent to WeChat as themselves, which is
+            # how they take a conversation over by hand.
+            #
+            # Checked two ways. `is_wechat_session` asks the address book,
+            # which knows about a contact before any message has ever reached
+            # them -- the conversation store does not, and asking it first sent
+            # an operator's very first message to a new contact through the
+            # agent instead, then recorded the mistake as fact by tagging the
+            # session `web` for every message after. `_is_read_only_session`
+            # stays as a fallback for a session whose channel the store already
+            # settled, in case the contact ever drops out of the cached catalog.
+            from channel.web.contacts_api import is_wechat_session
+
+            if is_wechat_session(session_id) or _is_read_only_session(
+                session_id, resolved_agent_id
+            ):
+                from channel.web.contacts_api import relay_to_wechat
+
+                logger.info(f"[WebChannel] relaying a typed message to {session_id}")
+                return json.dumps(
+                    relay_to_wechat(session_id, prompt, resolved_agent_id),
+                    ensure_ascii=False,
                 )
-                return json.dumps({
-                    "status": "error",
-                    "message": "This conversation is read-only in the console; "
-                               "reply from the channel it belongs to.",
-                    "read_only": True,
-                }, ensure_ascii=False)
 
             # Kept before any prefixing or attachment lines, so mention parsing
             # still sees what the user actually typed.
@@ -1868,6 +1807,10 @@ class WebChannel(ChatChannel):
             '/api/workspace/meta', 'WorkspaceMetaHandler',
             '/api/workspace/read', 'WorkspaceReadHandler',
             '/api/workspace/write', 'WorkspaceWriteHandler',
+            '/api/contacts', 'ContactsHandler',
+            '/api/contacts/scan', 'ContactsScanHandler',
+            '/api/contacts/toggle', 'ContactsToggleHandler',
+            '/api/contacts/profile', 'ContactProfileHandler',
             '/api/projects', 'ProjectsHandler',
             '/api/projects/select', 'ProjectSelectHandler',
             '/api/projects/create', 'ProjectCreateHandler',
@@ -1879,6 +1822,7 @@ class WebChannel(ChatChannel):
             '/cancel', 'CancelHandler',
             '/chat', 'ChatHandler',
             '/config', 'ConfigHandler',
+            '/api/config/json', 'ConfigJsonHandler',
             '/api/models', 'ModelsHandler',
             '/api/channels', 'ChannelsHandler',
             '/api/tools', 'ToolsHandler',
@@ -1910,7 +1854,6 @@ class WebChannel(ChatChannel):
             '/api/logs/download', 'LogsDownloadHandler',
             '/api/logs', 'LogsHandler',
             '/api/version', 'VersionHandler',
-            '/mcp/oauth/callback', 'McpOAuthCallbackHandler',
             '/assets/(.*)', 'AssetsHandler',
         )
         app = web.application(urls, globals(), autoreload=False)
@@ -1985,63 +1928,6 @@ class HealthHandler:
         web.header('Cache-Control', 'no-store')
         return json.dumps({"status": "ok"})
 
-
-class McpOAuthCallbackHandler:
-    """OAuth redirect target for MCP servers requiring authorization.
-
-    The browser lands here after the user authorizes a remote MCP server.
-    We exchange the authorization code for tokens and bring the server
-    online. Unauthenticated by design: the OAuth `state` param is the
-    single-use secret that binds this request to a pending authorization.
-    """
-
-    def GET(self):
-        web.header('Content-Type', 'text/html; charset=utf-8')
-        params = web.input(code="", state="", error="", error_description="")
-
-        def _page(title: str, message: str) -> str:
-            return (
-                "<!doctype html><html><head><meta charset='utf-8'>"
-                "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-                f"<title>{title}</title></head>"
-                "<body style='font-family:-apple-system,Segoe UI,Roboto,sans-serif;"
-                "max-width:520px;margin:64px auto;padding:0 20px;text-align:center;color:#1f2328'>"
-                f"<h2>{title}</h2><p style='color:#57606a'>{message}</p></body></html>"
-            )
-
-        if params.error:
-            logger.warning(f"[MCP-OAuth] callback error: {params.error} {params.error_description}")
-            return _page("授权失败", f"{params.error}: {params.error_description or ''}")
-
-        if not params.code or not params.state:
-            return _page("参数缺失", "回调缺少 code 或 state 参数。")
-
-        try:
-            from agent.tools.mcp.mcp_oauth import pop_pending
-            from agent.tools.mcp.mcp_client import notify_server_authorized
-        except Exception as e:
-            logger.warning(f"[MCP-OAuth] callback import failed: {e}")
-            return _page("内部错误", "OAuth 模块不可用。")
-
-        handler = pop_pending(params.state)
-        if handler is None:
-            return _page("会话已过期", "授权请求不存在或已过期，请重新触发授权。")
-
-        try:
-            ok = handler.finish_authorization(params.code)
-        except Exception as e:
-            logger.warning(f"[MCP-OAuth] token exchange crashed: {e}")
-            ok = False
-
-        if not ok:
-            return _page("授权失败", "换取令牌失败，请重试。")
-
-        notify_server_authorized(handler.server_name)
-        logger.info(f"[MCP-OAuth] Server '{handler.server_name}' authorized via web callback")
-        return _page(
-            "授权成功",
-            f"MCP 服务 “{handler.server_name}” 已授权，可以返回聊天继续使用了。",
-        )
 
 
 class AuthCheckHandler:
@@ -2292,8 +2178,8 @@ class ChatHandler:
         cache_bust = str(int(time.time()))
         # Every first-party asset the page pulls in, so an upgraded console is
         # never left running against a browser-cached copy of the old scripts.
-        for asset in ('js/console.js', 'js/workspace.js', 'js/doc-editor.js',
-                      'css/console.css'):
+        for asset in ('js/console.js', 'js/workspace.js', 'js/contacts.js',
+                      'js/doc-editor.js', 'css/console.css'):
             html = html.replace(f'assets/{asset}', f'assets/{asset}?v={cache_bust}')
         # Inject the backend-resolved default language for first-load fallback.
         html = html.replace("{{COW_DEFAULT_LANG}}", i18n.get_language())
@@ -2446,6 +2332,7 @@ class ConfigHandler:
         "custom_providers",
         "agent_max_context_tokens", "agent_max_context_turns", "agent_max_steps",
         "enable_thinking", "reasoning_effort", "reasoning_effort_by_model", "self_evolution_enabled", "web_password",
+        "deep_dream_enabled", "embedding_enabled", "memory_search_enabled", "tool_call_enabled",
         "agent_permission_mode",
     }
 
@@ -2554,6 +2441,10 @@ class ConfigHandler:
                 # applies to an absent setting is the one shown here.
                 "self_evolution_enabled": get_evolution_config().enabled,
                 "subagent_enabled": SubagentSettings.from_config().enabled,
+                "deep_dream_enabled": bool(local_config.get("deep_dream_enabled", False)),
+                "embedding_enabled": bool(local_config.get("embedding_enabled", False)),
+                "memory_search_enabled": bool(local_config.get("memory_search_enabled", False)),
+                "tool_call_enabled": bool(local_config.get("tool_call_enabled", False)),
                 # Default permission mode for sessions that have not pinned one.
                 "agent_permission_mode": permission_global_mode(),
                 "permission_modes": list(PERMISSION_MODES),
@@ -2593,7 +2484,7 @@ class ConfigHandler:
                     continue
                 if key in ("agent_max_context_tokens", "agent_max_context_turns", "agent_max_steps"):
                     value = int(value)
-                if key in ("use_linkai", "enable_thinking", "self_evolution_enabled"):
+                if key in ("use_linkai", "enable_thinking", "self_evolution_enabled", "deep_dream_enabled", "embedding_enabled", "memory_search_enabled", "tool_call_enabled"):
                     value = bool(value)
                 # Never persist an unknown mode: every later read would silently
                 # fall back and the UI would show a setting that does nothing.
@@ -2684,6 +2575,184 @@ class ConfigHandler:
         except Exception as e:
             logger.error(f"Error updating config: {e}")
             return json.dumps({"status": "error", "message": str(e)})
+
+
+class ConfigJsonHandler:
+    """API for directly previewing and editing JSON configuration files.
+
+    Provides read and write access to primary project configuration files:
+    - config.json: Main runtime configuration. Saving syncs conf() and resets bot bridge.
+    - prompts.json: Unified prompt templates. Saving hot-reloads PromptManager.
+    """
+
+    ALLOWED_FILES = {
+        "config.json": {
+            "name": "config.json",
+            "desc": "系统核心配置 (System Config)",
+            "type": "config",
+        },
+        "prompts.json": {
+            "name": "prompts.json",
+            "desc": "全局提示词库 (Prompts Config)",
+            "type": "prompts",
+        },
+    }
+
+    @classmethod
+    def _resolve_file_path(cls, file_name: str) -> Optional[str]:
+        if file_name not in cls.ALLOWED_FILES:
+            return None
+        if file_name == "config.json":
+            config_path = os.path.join(get_data_root(), "config.json")
+            if not os.path.exists(config_path):
+                template_path = get_config_template_path()
+                if os.path.exists(template_path):
+                    return template_path
+            return config_path
+        elif file_name == "prompts.json":
+            try:
+                from agent.prompt.manager import PromptManager
+                pm = PromptManager.get_instance()
+                resolved = pm._resolved_path or pm._resolve_file_path()
+                if resolved and os.path.exists(resolved):
+                    return str(resolved)
+            except Exception:
+                pass
+            cand = os.path.join(get_root(), "prompts.json")
+            return cand
+        return None
+
+    def GET(self):
+        _require_auth()
+        web.header('Content-Type', 'application/json; charset=utf-8')
+        try:
+            params = web.input(file='config.json')
+            file_name = (getattr(params, "file", "") or "config.json").strip()
+            if file_name not in self.ALLOWED_FILES:
+                return json.dumps({
+                    "status": "error",
+                    "message": f"Unsupported or disallowed file: {file_name}. Allowed: {list(self.ALLOWED_FILES.keys())}"
+                }, ensure_ascii=False)
+
+            file_path = self._resolve_file_path(file_name)
+            content = ""
+            if file_path and os.path.exists(file_path):
+                with open(file_path, "r", encoding="utf-8-sig") as f:
+                    content = f.read()
+            elif file_name == "config.json":
+                tpl = read_config_template()
+                content = json.dumps(tpl, indent=2, ensure_ascii=False)
+
+            files_list = [
+                {"id": k, "name": v["name"], "desc": v["desc"]}
+                for k, v in self.ALLOWED_FILES.items()
+            ]
+
+            return json.dumps({
+                "status": "success",
+                "file": file_name,
+                "path": file_path or file_name,
+                "content": content,
+                "size": len(content.encode("utf-8")),
+                "files": files_list,
+            }, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"[WebChannel] ConfigJson GET error: {e}")
+            return json.dumps({"status": "error", "message": str(e)}, ensure_ascii=False)
+
+    def POST(self):
+        _require_auth()
+        web.header('Content-Type', 'application/json; charset=utf-8')
+        try:
+            body = json.loads(web.data() or b'{}')
+            file_name = (body.get("file") or "config.json").strip()
+            content = body.get("content")
+            if file_name not in self.ALLOWED_FILES:
+                return json.dumps({
+                    "status": "error",
+                    "message": f"Unsupported or disallowed file: {file_name}. Allowed: {list(self.ALLOWED_FILES.keys())}"
+                }, ensure_ascii=False)
+            if content is None or not isinstance(content, str):
+                return json.dumps({"status": "error", "message": "content must be a string"}, ensure_ascii=False)
+
+            # Strict JSON syntax validation
+            try:
+                parsed_data = json.loads(content)
+            except Exception as parse_err:
+                return json.dumps({
+                    "status": "error",
+                    "code": "json_parse_error",
+                    "message": f"JSON 语法错误: {parse_err}"
+                }, ensure_ascii=False)
+
+            if not isinstance(parsed_data, dict):
+                return json.dumps({
+                    "status": "error",
+                    "message": "JSON 根节点必须是一个对象 (Object / dict)"
+                }, ensure_ascii=False)
+
+            formatted_content = json.dumps(parsed_data, indent=2, ensure_ascii=False) + "\n"
+
+            if file_name == "config.json":
+                target_path = os.path.join(get_data_root(), "config.json")
+            elif file_name == "prompts.json":
+                target_path = None
+                try:
+                    from agent.prompt.manager import PromptManager
+                    pm = PromptManager.get_instance()
+                    resolved = pm._resolved_path or pm._resolve_file_path()
+                    if resolved:
+                        target_path = str(resolved)
+                except Exception:
+                    pass
+                if not target_path:
+                    target_path = os.path.join(get_root(), "prompts.json")
+
+            os.makedirs(os.path.dirname(os.path.abspath(target_path)), exist_ok=True)
+            with open(target_path, "w", encoding="utf-8") as f:
+                f.write(formatted_content)
+
+            logger.info(f"[WebChannel] Config JSON file updated: {file_name} -> {target_path} ({len(formatted_content)} bytes)")
+
+            # Post-save runtime sync
+            if file_name == "config.json":
+                try:
+                    local_config = conf()
+                    local_config.clear()
+                    local_config.update(parsed_data)
+                except Exception as sync_err:
+                    logger.warning(f"[WebChannel] Failed to sync in-memory conf: {sync_err}")
+
+                if "cow_lang" in parsed_data:
+                    try:
+                        i18n.resolve_language(parsed_data["cow_lang"])
+                    except Exception as lang_err:
+                        logger.warning(f"[WebChannel] Failed to apply language from json config: {lang_err}")
+
+                try:
+                    from bridge.bridge import Bridge
+                    Bridge().reset_bot()
+                except Exception as reset_err:
+                    logger.warning(f"[WebChannel] Failed to reset bridge bot: {reset_err}")
+
+            elif file_name == "prompts.json":
+                try:
+                    from agent.prompt.manager import PromptManager
+                    PromptManager.get_instance().reload(force=True)
+                    logger.info("[WebChannel] Reloaded PromptManager from updated prompts.json")
+                except Exception as pm_err:
+                    logger.warning(f"[WebChannel] Failed to reload PromptManager: {pm_err}")
+
+            return json.dumps({
+                "status": "success",
+                "file": file_name,
+                "path": target_path,
+                "size": len(formatted_content.encode("utf-8")),
+                "message": "配置已成功保存并热生效"
+            }, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"[WebChannel] ConfigJson POST error: {e}")
+            return json.dumps({"status": "error", "message": str(e)}, ensure_ascii=False)
 
 
 class ModelsHandler:
@@ -5248,23 +5317,35 @@ def _reload_agent_runtime(service, changed_agent_ids=None) -> None:
 
     # Reconcile schedulers against what is already running, rather than
     # stopping and recreating the whole set.
-    from agent.tools.scheduler.integration import init_scheduler, stop_scheduler
-    live_ids = {p.id for p in registry.list(include_disabled=False)}
-    previously = set(agent_bridge.scheduler_agent_ids)
+    #
+    # The scheduler tool is not part of this build, and this import is what
+    # says so. Every other scheduler call site in this process is already
+    # written to tolerate its absence; this one was not, and an unguarded
+    # ImportError here would abort a rebind -- leaving the registry and router
+    # swapped in but the Agents whose definitions changed still running their
+    # old cached runtimes.
+    try:
+        from agent.tools.scheduler.integration import init_scheduler, stop_scheduler
+    except ImportError:
+        init_scheduler = stop_scheduler = None
 
-    for agent_id in previously - live_ids:
-        try:
-            stop_scheduler(agent_id)
-        except Exception as e:
-            logger.warning(f"[WebChannel] stop_scheduler({agent_id}) failed: {e}")
-        agent_bridge.scheduler_agent_ids.discard(agent_id)
+    if stop_scheduler is not None:
+        live_ids = {p.id for p in registry.list(include_disabled=False)}
+        previously = set(agent_bridge.scheduler_agent_ids)
 
-    for profile in registry.list(include_disabled=False):
-        if profile.id in previously:
-            continue  # already has a running scheduler; init_scheduler is a no-op
-        if init_scheduler(agent_bridge, profile.workspace, profile.id):
-            agent_bridge.scheduler_agent_ids.add(profile.id)
-    agent_bridge.scheduler_initialized = bool(agent_bridge.scheduler_agent_ids)
+        for agent_id in previously - live_ids:
+            try:
+                stop_scheduler(agent_id)
+            except Exception as e:
+                logger.warning(f"[WebChannel] stop_scheduler({agent_id}) failed: {e}")
+            agent_bridge.scheduler_agent_ids.discard(agent_id)
+
+        for profile in registry.list(include_disabled=False):
+            if profile.id in previously:
+                continue  # already has a running scheduler; init_scheduler is a no-op
+            if init_scheduler(agent_bridge, profile.workspace, profile.id):
+                agent_bridge.scheduler_agent_ids.add(profile.id)
+        agent_bridge.scheduler_initialized = bool(agent_bridge.scheduler_agent_ids)
 
     # Drop cached runtimes only for the Agents whose definition changed, so the
     # edit takes effect on their next turn without wiping everyone's session.
@@ -6253,13 +6334,6 @@ class HistoryHandler:
                 page=int(params.page),
                 page_size=int(params.page_size),
             )
-            for msg in result.get("messages") or []:
-                if msg.get("role") != "assistant":
-                    continue
-                _add_subagent_displays(msg.get("steps"))
-                artifacts = _artifacts_from_steps(msg.get("steps"), session_id)
-                if artifacts:
-                    msg["artifacts"] = artifacts
             return json.dumps({"status": "success", **result}, ensure_ascii=False)
         except Exception as e:
             logger.error(f"[WebChannel] History API error: {e}")
@@ -6407,13 +6481,14 @@ class AssetsHandler:
                 logger.debug(f"Static file not found: {full_path}")
                 raise web.notfound()
 
-            # 设置正确的Content-Type
+            # 设置正确的Content-Type与缓存控制头
             content_type = mimetypes.guess_type(full_path)[0]
             if content_type:
                 web.header('Content-Type', content_type)
             else:
                 # 默认为二进制流
                 web.header('Content-Type', 'application/octet-stream')
+            web.header('Cache-Control', 'no-cache, must-revalidate')
 
             # 读取并返回文件内容
             with open(full_path, 'rb') as f:
@@ -6519,6 +6594,15 @@ class WorkspaceResolveHandler:
                 return json.dumps({"status": "error", "message": "path is required"})
 
             svc = _workspace_service(params.session or None, params.agent or None)
+            # Memory, knowledge and the persona files stay anchored to the state
+            # root even while a project is open -- `_editable_target` already
+            # falls back that way for the editor, and resolving them anywhere
+            # else here would let the panel open a file it then could not save.
+            if not os.path.isabs(os.path.expanduser(raw_path)):
+                system = _system_workspace_service()
+                if svc.root != system.root and _is_system_asset_rel(raw_path) \
+                        and not os.path.isfile(svc.resolve(raw_path)):
+                    svc = system
             if os.path.isabs(os.path.expanduser(raw_path)):
                 abs_path = os.path.realpath(os.path.expanduser(raw_path))
                 if not _is_path_allowed(abs_path):

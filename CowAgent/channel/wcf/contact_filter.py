@@ -42,13 +42,33 @@ def normalize_white_list(raw) -> list:
     return [item.strip() for item in items if isinstance(item, str) and item.strip()]
 
 
-def is_allowed_contact(white_list, wxid, display_name="") -> bool:
+def is_allowed_contact(white_list, wxid, display_name="", state=None) -> bool:
     """True when a private chat with this contact may reach the agent.
 
     ``white_list`` is the raw config value; ``wxid`` is the peer's id and
     ``display_name`` its resolved nickname (may be equal to the wxid when the
     contact database is unreadable).
+
+    ``state`` is the console's switch store
+    (:class:`~channel.wcf.contact_state.ContactState`), consulted first. A
+    session the operator has actually switched is decided there and nowhere
+    else -- including switched *off*, which has to outrank ``ALL_CONTACT``,
+    since a blanket setting in a config file cannot be allowed to undo a
+    deliberate act in the console. A session nobody has touched falls through
+    to the list, which is what keeps installs that predate the console working
+    unchanged.
     """
+    if state is not None:
+        # A store that could not read its document has lost the operator's
+        # decisions, not established that there were none. Falling through to
+        # the list would then let ``ALL_CONTACT`` readmit someone they had
+        # switched off -- the list is the older and broader source, and it must
+        # not get to overrule an answer it never saw.
+        if state.degraded:
+            return False
+        if state.has(wxid, "allowed"):
+            return state.is_allowed(wxid)
+
     entries = normalize_white_list(white_list)
     if not entries:
         return False

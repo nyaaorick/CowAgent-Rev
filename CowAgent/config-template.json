@@ -33,5 +33,8 @@
   "reasoning_effort": "high",
   "knowledge": true,
   "self_evolution_enabled": true,
-  "mcp_tool_retrieval_enabled": false
+  "deep_dream_enabled": false,
+  "embedding_enabled": false,
+  "memory_search_enabled": false,
+  "tool_call_enabled": false
 }

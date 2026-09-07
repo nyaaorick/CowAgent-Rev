@@ -3662,3 +3662,118 @@ button.composer-menu-item.joined:hover .joined-remove { display: inline; color: 
     .agent-detail.hidden { display: none; }
     .agent-detail.hidden::before { content: none; }
 }
+
+/* ==========================================================================
+   Address book: the Contacts / Groups list that replaces the history list in
+   the session panel, and the per-conversation switches in the header.
+   Mirrors .session-item so both lists read as the same control.
+   ========================================================================== */
+.contact-toolbar { flex-shrink: 0; }
+.contact-search {
+    display: block;
+    width: calc(100% - 24px);
+    margin: 0 12px 8px;
+    padding: 7px 12px;
+    border-radius: 8px;
+    border: 1px solid #e5e7eb;
+    background: #ffffff;
+    color: #111827;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s;
+}
+.contact-search::placeholder { color: #9ca3af; }
+.contact-search:focus { border-color: #4ABE6E; }
+.dark .contact-search {
+    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+    color: #e5e5e5;
+}
+.dark .contact-search::placeholder { color: #6b7280; }
+
+.contact-hint {
+    margin: 0 12px 8px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: #fef3c7;
+    color: #92400e;
+    font-size: 12px;
+    line-height: 1.4;
+}
+.dark .contact-hint { background: rgba(180, 83, 9, 0.18); color: #fcd34d; }
+
+.contact-empty {
+    padding: 24px 16px;
+    color: #9ca3af;
+    font-size: 13px;
+    text-align: center;
+    line-height: 1.6;
+}
+.dark .contact-empty { color: #6b7280; }
+
+/* The sandbox sits above the real contacts and stays there while the list is
+   filtered, so a separator makes it clear it is not a WeChat session. */
+.contact-sandbox {
+    border-bottom: 1px solid #e5e7eb;
+    margin-bottom: 4px;
+    padding-bottom: 8px;
+}
+.dark .contact-sandbox { border-bottom-color: rgba(255, 255, 255, 0.08); }
+.contact-sandbox .session-icon { color: #6b7280; }
+
+.contact-meta {
+    display: block;
+    font-size: 11px;
+    color: #9ca3af;
+    line-height: 1.4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.dark .contact-meta { color: #6b7280; }
+.contact-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.contact-text { min-width: 0; flex: 1; }
+
+/* A contact the agent is allowed to answer. WeChat's own green, matching how
+   .session-item-mirrored already marks a WeChat conversation. */
+.contact-dot {
+    flex-shrink: 0;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #07C160;
+}
+.contact-dot-off { background: transparent; }
+
+/* -------------------------------------------------------- header switches */
+.contact-switches {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding-left: 4px;
+    flex-shrink: 0;
+}
+.contact-switch {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #6b7280;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+.dark .contact-switch { color: #a3a3a3; }
+.contact-switch input { accent-color: #4ABE6E; cursor: pointer; margin: 0; }
+.contact-switch:hover { color: #111827; }
+.dark .contact-switch:hover { color: #e5e5e5; }
+
+@media (max-width: 900px) {
+    /* The switches are the first thing to lose room next to the breadcrumb;
+       they stay reachable in the list's own row instead. */
+    .contact-switches { display: none; }
+}

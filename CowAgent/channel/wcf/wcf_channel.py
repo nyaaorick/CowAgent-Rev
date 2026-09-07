@@ -1,27 +1,29 @@
 # encoding:utf-8
 
-"""WeChatFerry channel — local mode (Milestone 4.2).
+"""WeChatFerry channel — the adapter between WeChat and the agent bridge.
 
-Talks to WeChatFerry over its nng RPC. By default it runs the library in
-**local mode**: ``Wcf(host=None)`` runs ``wcf.exe start <port>`` as a
-subprocess, which injects ``spy.dll`` into a running WeChat.exe and binds
-``127.0.0.1:10086`` (commands) / ``:10087`` (events). spy is 32-bit and is
-driven out-of-process so that 64-bit Python can use it. Set ``wcf_host`` to a
-real IP only to attach to a WeChatFerry already running on another machine —
-the single-host deployment never does (see ROADMAP "方案二").
+The connection itself is not here. It belongs to
+:class:`~channel.wcf.gateway.WcfGateway`, which owns one WeChatFerry client for
+the whole process: ``spy.dll`` is a singleton injection into a running
+WeChat.exe, and a second client wedges it (ROADMAP WCF-BUG-03). This module
+subscribes to that gateway and does the channel's own work -- mapping a
+``WxMsg`` onto a ``ChatMessage``, deciding who may reach the agent, and sending
+replies back.
 
 ``wcferry`` is pinned to ``39.6.0.0``: it is the only published build that
 targets this host's **WeChat 3.9.12.56** (``39.5.2.0`` targets 3.9.12.51 and
 access-violates on 3.9.12.56). The wheel's own DLLs are mis-built — see
 ``scripts/wcf_ci_dlls.py``, which replaces them with upstream's CI binaries.
 
+The connection is always loopback. ``wcf_host`` is still accepted in config for
+compatibility but is not read: wcferry is not built for cross-host use, and the
+single-host deployment never wanted it (see ROADMAP "方案二").
+
 Scope: **text messages only**. Image / voice / file receive and send are
 Milestone 4.3; unsupported inbound types are logged and skipped, unsupported
 outbound reply types are logged and dropped.
 """
 
-import os
-import socket
 import threading
 import time
 
@@ -29,35 +31,14 @@ from bridge.context import Context, ContextType
 from bridge.reply import Reply, ReplyType
 from channel.chat_channel import ChatChannel
 from channel.wcf.contact_filter import is_allowed_contact
+from channel.wcf.contact_state import get_contact_state
 from channel.wcf.wcf_message import WcfMessage
 from common.log import logger
 from common.singleton import singleton
 from config import conf
 
-# wcf_host values that mean "run WeChatFerry here" rather than "dial a remote one".
-_LOCAL_HOSTS = {"", "127.0.0.1", "localhost", "local", "::1"}
-
 # How long a seen msg_id is remembered for de-duplication.
 _DEDUP_TTL = 60
-
-
-def _spy_log_path():
-    """Where spy.dll writes its own log — the only place its failures surface."""
-    try:
-        import wcferry
-        return os.path.join(os.path.dirname(wcferry.__file__), "logs", "wcf.txt")
-    except Exception:
-        return "<wcferry package>/logs/wcf.txt"
-
-
-def _port_listening(port, host="127.0.0.1"):
-    with socket.socket() as s:
-        s.settimeout(0.4)
-        try:
-            s.connect((host, port))
-            return True
-        except OSError:
-            return False
 
 
 @singleton
@@ -67,196 +48,64 @@ class WcfChannel(ChatChannel):
     def __init__(self):
         super().__init__()
         self.wcf = None
+        self.gateway = None
         self._seen = {}            # msg_id -> first-seen monotonic time
         self._seen_lock = threading.Lock()
         self._contacts = {}        # wxid -> contact dict (from get_contacts)
 
     # ------------------------------------------------------------------ startup
     def startup(self):
-        try:
-            from wcferry import Wcf
-        except ImportError as e:
-            raise RuntimeError(
-                "channel_type is 'wcf' but the 'wcferry' package is not installed. "
-                "Run: .venv\\Scripts\\pip install wcferry  (Windows only)."
-            ) from e
+        """Bring the WeChat connection up and hand inbound messages to the bridge.
 
-        raw_host = str(conf().get("wcf_host", "") or "").strip()
+        The connection itself belongs to :class:`~channel.wcf.gateway.WcfGateway`
+        -- one per process, because spy.dll is a singleton injection -- and this
+        method is the channel's adapter onto it: subscribe, then stay alive for
+        as long as the gateway is running.
+
+        A gateway that cannot connect is not fatal here. Every failure it
+        reports concerns WeChat alone, and the web console and every other
+        channel have to keep running; ChannelManager logs the return.
+        """
+        from channel.wcf.gateway import WcfGateway
+
         port = int(conf().get("wcf_port", 10086))
-        debug = bool(conf().get("wcf_debug", False))
-        host = None if raw_host.lower() in _LOCAL_HOSTS else raw_host
+        if conf().get("wcf_debug", False):
+            # spy_debug.dll is built against the Debug CRT and access-violates
+            # inside a Release WeChat on the first send (ROADMAP WCF-BUG-05), so
+            # the gateway always injects the Release spy. Say so rather than
+            # ignoring the setting quietly.
+            logger.warning(
+                "[WCF] wcf_debug is set but ignored: the debug spy crashes "
+                "WeChat 3.9.12.56 on send (ROADMAP WCF-BUG-05)."
+            )
 
-        mode = "local (spawns wcf.exe)" if host is None else f"remote {host}:{port}"
-        logger.info(f"[WCF] connecting in {mode} mode ...")
+        logger.info(f"[WCF] connecting through the gateway on port {port}...")
+        self.gateway = WcfGateway.get_instance(port=port)
+        if not self.gateway.connect():
+            logger.warning(
+                "[WCF] the gateway could not connect; this channel stays idle "
+                "and the rest of CowAgent keeps running."
+            )
+            return
 
-        # Refuse to hand a doomed connection to wcferry: its constructor calls
-        # os._exit(-2) when the dial fails, which no except block can catch and
-        # which takes the web console down with it. See _ensure_spy_listening.
-        if host is None:
-            self._ensure_spy_listening(port, debug)
-
-        # block=True: returns only once WeChat is logged in.
-        self.wcf = Wcf(host=host, port=port, debug=debug)
-
-        self.user_id = self.wcf.get_self_wxid()
-        try:
-            self.name = (self.wcf.get_user_info() or {}).get("name") or ""
-        except Exception:
-            self.name = ""
+        self.wcf = self.gateway.wcf
+        self.user_id = self.wcf.get_self_wxid() if self.wcf else ""
+        self.name = (self.gateway.get_user_info() or {}).get("name") or ""
         logger.info(f"[WCF] logged in as {self.name!r} ({self.user_id})")
 
         allowed = conf().get("wcf_contact_white_list", []) or []
-        logger.info(f"[WCF] private chats answered for: {allowed or 'nobody (whitelist empty)'}")
+        logger.info(
+            f"[WCF] private chats answered for: "
+            f"{allowed or 'nobody (whitelist empty)'}"
+        )
 
         self._refresh_contacts()
-        if not self._contacts:
-            # spy reaches WeChat's databases through its AccountStorageMgr.
-            # On the 3.9.12.56 build that lookup fails, so the log fills with
-            # "Failed to get handle for database 'MicroMsg.db'" and contacts
-            # come back empty, while is_login() and get_self_wxid() keep working
-            # because they read a different structure.
-            #
-            # This is cosmetic, not fatal: message receive is hook-based and does
-            # not touch the databases -- an end-to-end round trip was confirmed
-            # with an empty contact list. Only display names degrade to raw
-            # wxids. Group @-detection parses the message XML, not the DB.
-            logger.warning(
-                "[WCF] no contacts returned — spy cannot read WeChat's databases, "
-                "so sender names will show as raw wxids. Messages still work. See "
-                f"{_spy_log_path()} and ROADMAP 4.1 (MicroMsg.db defect)."
-            )
-
-        # The client returns False both when the hook genuinely failed AND when
-        # spy answers status=1 ("already listening", from a previous injection
-        # into this same WeChat session) -- in the second case it also skips
-        # starting its own receive thread, so no message is ever delivered and
-        # nothing is logged. Neither case is survivable, so say so plainly.
-        if not self.wcf.enable_receiving_msg():
-            logger.error(
-                "[WCF] enable_receiving_msg() failed. Usually spy is still "
-                "injected from an earlier run (status=1 'already listening'). "
-                "Fully quit and reopen WeChat, then start again."
-            )
-        self._verify_event_channel(port)
         self.report_startup_success()
 
+        self.gateway.subscribe(self._handle_wxmsg)
         logger.info("[WCF] receiving messages")
-        self._recv_loop()
-
-    def _ensure_spy_listening(self, port, debug):
-        """Get spy.dll injected and answering on ``port``, or raise saying why.
-
-        This exists because of how wcferry fails. ``Wcf(host=None)`` runs
-        ``wcf.exe start <port>`` and accepts exit code 10 ("spy 已注入") as
-        "already ready" -- but a spy can be injected with its RPC server
-        stopped, which is what an earlier ``cleanup()`` leaves behind
-        (ROADMAP WCF-BUG-03). Nothing then listens, the dial fails, and
-        wcferry answers with ``os._exit(-2)``: not an exception, an immediate
-        process kill. The channel thread cannot catch it and the web console
-        dies with it, for a fault that only concerns WeChat.
-
-        So the injection is driven here first, where the exit code can be read
-        against the port's actual state, and a bad one becomes an ordinary
-        exception that ChannelManager logs while every other channel keeps
-        running.
-        """
-        import subprocess
-
-        if _port_listening(port):
-            return  # spy is already up and answering; Wcf will just dial it.
-
-        try:
-            import wcferry
-            wcf_exe = os.path.join(os.path.dirname(wcferry.__file__), "wcf.exe")
-        except Exception as e:
-            raise RuntimeError(f"cannot locate wcf.exe: {e}") from e
-
-        cmd = [wcf_exe, "start", str(port)] + (["debug"] if debug else [])
-        try:
-            rc = subprocess.run(
-                cmd, cwd=os.path.dirname(wcf_exe), capture_output=True, timeout=60
-            ).returncode
-        except Exception as e:
-            raise RuntimeError(f"could not run wcf.exe: {e}") from e
-
-        # Exit codes are wcf.exe's own (see its --help): 0 ok, 10 already
-        # injected, 4 WeChat not running, 5 injection refused.
-        if rc == 0 and self._wait_for_port(port):
-            return
-        if rc == 10 and self._wait_for_port(port):
-            return  # injected by an earlier run and still healthy.
-
-        if rc == 10:
-            raise RuntimeError(
-                f"spy.dll is injected into WeChat but nothing is listening on "
-                f"127.0.0.1:{port}. A previous run stopped its RPC server "
-                f"without unloading the DLL, and it cannot be restarted in "
-                f"place. Fully quit WeChat (including the tray icon), reopen "
-                f"and log in, then start CowAgent-Rev again. "
-                f"See {_spy_log_path()}."
-            )
-        if rc == 4:
-            raise RuntimeError(
-                "WeChat is not running. Start WeChat 3.9.12.x and log in first."
-            )
-        raise RuntimeError(
-            f"wcf.exe start failed (exit {rc}); spy.dll was not injected. "
-            f"See {_spy_log_path()}."
-        )
-
-    @staticmethod
-    def _wait_for_port(port, timeout=15):
-        """Wait for the command port, which binds a moment after injection."""
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if _port_listening(port):
-                return True
-            time.sleep(0.3)
-        return False
-
-    def _verify_event_channel(self, cmd_port):
-        """Warn if the event socket (``cmd_port + 1``) has not come up.
-
-        `enable_receiving_msg` starts wcferry's "GetMessage" thread, which dials
-        that socket. If it is not listening the thread dies on
-        ``ConnectionRefused`` and no inbound message ever arrives, while the
-        command RPC and login keep working — a confusing half-alive state worth
-        a log line.
-
-        This only **warns**. The usual cause is a poisoned spy.dll from an
-        earlier `Wcf.cleanup()` / re-inject cycle without restarting WeChat, and
-        the socket can also simply be slow to bind — neither is worth refusing
-        to start over.
-        """
-        evt_port = cmd_port + 1
-        for _ in range(15):
-            if _port_listening(evt_port):
-                return True
-            if not any(t.name == "GetMessage" and t.is_alive()
-                       for t in threading.enumerate()):
-                break
+        while self.gateway.is_running:
             time.sleep(1)
-        logger.warning(
-            f"[WCF] event channel 127.0.0.1:{evt_port} is not listening — inbound "
-            "messages will not arrive. Restart WeChat, then start CowAgent-Rev "
-            "again (spy.dll gets wedged if a previous run was killed without "
-            "cleanup). Sending still works."
-        )
-        return False
-
-    def _recv_loop(self):
-        while True:
-            try:
-                msg = self.wcf.get_msg()
-            except Exception as e:
-                # get_msg raises queue.Empty on an idle timeout; anything else
-                # is worth a debug line but not worth tearing the loop down.
-                if e.__class__.__name__ != "Empty":
-                    logger.debug(f"[WCF] get_msg: {e}")
-                time.sleep(0.2)
-                continue
-            if msg is not None:
-                self._handle_wxmsg(msg)
 
     # ------------------------------------------------------------------ inbound
     def _handle_wxmsg(self, wcf_msg):
@@ -273,7 +122,8 @@ class WcfChannel(ChatChannel):
                 return
 
             # Private chats gate here; group chats gate on group_name_white_list
-            # inside ChatChannel._compose_context, which this must not shadow.
+            # inside ChatChannel._compose_context (overridden per room by
+            # ``room_allowed``), which this must not shadow.
             if not cmsg.is_group and not self._contact_allowed(cmsg):
                 logger.debug(
                     f"[WCF] ignoring {cmsg.from_user_id} "
@@ -302,7 +152,32 @@ class WcfChannel(ChatChannel):
             conf().get("wcf_contact_white_list", []),
             cmsg.from_user_id,
             cmsg.from_user_nickname,
+            state=get_contact_state(),
         )
+
+    def room_allowed(self, roomid):
+        """Has the operator decided about this room in the console?
+
+        Three answers, not two: True and False are the console's switch, and
+        None means nobody has touched this room, so the decision belongs to
+        ``group_name_white_list`` in ``ChatChannel`` where it always has. The
+        console switch is keyed by ``roomid`` rather than by group name because
+        a group's name is chosen by its members and can change under us.
+        """
+        state = get_contact_state()
+        # A lost switch document is a refusal, not an absence of opinion:
+        # ``group_name_white_list`` is ``ALL_GROUP`` on plenty of installs, and
+        # deferring to it here would readmit every room the operator had
+        # switched off.
+        if state.degraded:
+            return False
+        if not state.has(roomid, "allowed"):
+            return None
+        return state.is_allowed(roomid)
+
+    def at_free_session(self, session_id) -> bool:
+        """True when this room was opened for replies without an @mention."""
+        return get_contact_state().at_free(session_id)
 
     def _is_duplicate(self, msg_id):
         now = time.monotonic()
@@ -316,10 +191,63 @@ class WcfChannel(ChatChannel):
             return False
 
     # ----------------------------------------------------------------- outbound
+    def _send_text(self, text, receiver, aters="") -> int:
+        """Hand one text message to whichever transport this channel has.
+
+        Returns WeChat's own status: 0 is delivered, anything else is not. The
+        no-transport case answers -1 rather than raising, so both callers treat
+        "not connected" the same way they treat "WeChat refused it" -- neither
+        one delivered the message, and the difference is for the log.
+        """
+        if self.gateway:
+            return self.gateway.send_text(text, receiver, aters)
+        if self.wcf:
+            return self.wcf.send_text(msg=text, receiver=receiver, aters=aters)
+        logger.error("[WCF] no connection to WeChat")
+        return -1
+
+    def send_as_operator(self, receiver, text) -> bool:
+        """Send a message the operator typed in the console. True when it left.
+
+        Deliberately not routed through ``send``: that path enforces the
+        observe-only switch, and this is the person that switch hands the
+        conversation to. Silencing the agent must not silence them.
+
+        The message goes out under the operator's own WeChat account, because
+        that is the only account there is -- the contact sees an ordinary
+        message from them, with nothing marking it as console-typed.
+        """
+        receiver = (receiver or "").strip()
+        text = (text or "").strip()
+        if not receiver or not text:
+            logger.warning("[WCF] operator send: empty receiver or message")
+            return False
+
+        status = self._send_text(text, receiver)
+        if status == 0:
+            logger.info(f"[WCF] operator sent text to {receiver}")
+            return True
+        logger.error(
+            f"[WCF] operator send to {receiver} failed (status={status}); "
+            f"the message may not have been delivered."
+        )
+        return False
+
     def send(self, reply: Reply, context: Context):
         receiver = context.get("receiver")
         if not receiver:
             logger.error("[WCF] send: empty receiver")
+            return
+
+        # Manual takeover. Checked here, at the last point before the wire,
+        # rather than earlier where the reply is generated: this is the one
+        # place every outbound path funnels through, so a switch honoured here
+        # cannot be bypassed by a plugin or a future caller. The cost is that
+        # the model has already answered by now and the answer is discarded --
+        # worth it, because the failure mode of the cheaper check is a message
+        # the operator thought they had intercepted arriving anyway.
+        if not get_contact_state().auto_answer(receiver):
+            logger.info(f"[WCF] observe-only: reply to {receiver} withheld")
             return
 
         if reply.type in (ReplyType.TEXT, ReplyType.TEXT_, ReplyType.INFO, ReplyType.ERROR):
@@ -331,15 +259,13 @@ class WcfChannel(ChatChannel):
             # wedged spy look healthy - the socket pair is 5s send + 5s recv,
             # so a dead spy still produced a cheerful "sent text" line exactly
             # 10s later.
-            status = self.wcf.send_text(reply.content, receiver, aters)
+            status = self._send_text(reply.content, receiver, aters)
             if status == 0:
                 logger.info(f"[WCF] sent text to {receiver}")
             else:
                 logger.error(
                     f"[WCF] send to {receiver} failed (status={status}); the "
-                    f"reply may not have been delivered. A spy that stops "
-                    f"answering shows up here first - check "
-                    f"wcferry/logs/wcf.txt for the matching FUNC_SEND_TXT."
+                    f"reply may not have been delivered."
                 )
         else:
             logger.warning(f"[WCF] reply type {reply.type} not supported yet (Milestone 4.3)")
@@ -373,8 +299,10 @@ class WcfChannel(ChatChannel):
 
     # -------------------------------------------------------------------- close
     def stop(self):
-        if self.wcf is not None:
+        if self.gateway is not None:
+            self.gateway.close()
+        elif self.wcf is not None:
             try:
-                self.wcf.cleanup()
+                self.wcf.disable_recv_msg()
             except Exception as e:
-                logger.debug(f"[WCF] cleanup: {e}")
+                logger.debug(f"[WCF] disable_recv_msg: {e}")

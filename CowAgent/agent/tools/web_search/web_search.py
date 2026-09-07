@@ -203,6 +203,10 @@ class WebSearch(BaseTool):
         query = (args.get("query") or "").strip()
         if not query:
             return ToolResult.fail("Error: 'query' parameter is required")
+        import re
+        if not re.search(r"[\w\u4e00-\u9fff]", query):
+            return ToolResult.fail("Error: Search query must contain valid words or keywords, not just punctuation.")
+
 
         count = args.get("count", 10)
         freshness = args.get("freshness", "noLimit")

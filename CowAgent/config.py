@@ -200,7 +200,6 @@ available_setting = {
     "web_password": "",  # Web console password; empty means no authentication required
     "web_session_expire_days": 30,  # Auth session expiry in days
     "web_file_serve_root": "~",  # Root dir the /api/file endpoint may serve; "/" allows the whole filesystem
-    "mcp_oauth_redirect_base": "",  # Base URL for MCP OAuth callback (e.g. http://your-ip:9899); empty uses local web console
     "agent": True,  # whether to enable Agent mode
     "agent_workspace": "~/cow",  # agent workspace path, used to store skills, memory, etc.
     # Optional native multi-agent registry. When empty or omitted, CowAgent
@@ -251,17 +250,12 @@ available_setting = {
     "self_evolution_enabled": True,         # switch to enable/disable self-evolution
     "self_evolution_idle_minutes": 10,      # idle time before a session is reviewed
     "self_evolution_min_turns": 6,          # min user turns (or context pressure) to trigger
-    # Deep Dream: nightly memory distillation into MEMORY.md + dream diary.
-    "deep_dream_enabled": True,             # scheduled deep dream switch; manual /memory dream is unaffected
+    # Deep Dream & Memory feature switches: disabled by default for zero latency / token savings.
+    "deep_dream_enabled": False,            # scheduled deep dream switch; manual /memory dream is unaffected
+    "embedding_enabled": False,             # background vector embeddings switch
+    "memory_search_enabled": False,         # agent proactive memory_search/memory_get tools switch
+    "tool_call_enabled": False,             # agent tool calling switch (default off)
     "skill": {},  # Per-skill runtime config; nested keys flatten to SKILL_<NAME>_<KEY> env vars at startup
-    "mcp_servers": [],  # MCP server list; each entry supports type "stdio" (local process) or "sse" (remote URL)
-    # On-demand MCP tool retrieval: when many MCP tools are connected, inject
-    # only the most query-relevant ones instead of all of them. Built-in tools
-    # are always injected in full; degrades to full injection when disabled,
-    # below threshold, or when no embedding provider is available.
-    "mcp_tool_retrieval_enabled": False,    # switch for on-demand MCP tool retrieval
-    "mcp_tool_retrieval_threshold": 20,     # only retrieve when MCP tool count exceeds this
-    "mcp_tool_retrieval_top_k": 10,         # max relevant MCP tools injected per turn
 }
 
 

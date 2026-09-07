@@ -34,8 +34,36 @@ class ChatChannel(Channel):
         self.sessions = {}
         self.lock = threading.Lock()
         _thread = threading.Thread(target=self.consume)
-        _thread.setDaemon(True)
+        _thread.daemon = True
         _thread.start()
+
+    def room_allowed(self, room_id):
+        """Has this channel already decided about this room, by id?
+
+        Three answers. True and False are a decision the operator made about
+        this specific room; None means this channel has no opinion and the
+        ``group_name_white_list`` check below stands, which is what every
+        channel except WeChat wants.
+
+        The distinction matters because that list is keyed by group *name*, and
+        a group's name is chosen by its members: a room the operator enabled
+        can silently go dark when someone renames it. A per-id decision cannot.
+        """
+        return None
+
+    def at_free_session(self, session_id) -> bool:
+        """Does this room get answered without being @mentioned?
+
+        A group message that neither matches a prefix nor @mentions the bot is
+        dropped below, which is the right default: a bot that speaks up in
+        every group it sits in is a nuisance. A channel where the operator can
+        mark one room as open -- the WeChat console does -- overrides this.
+
+        Returning False here keeps every other channel behaving exactly as it
+        did, which is why the WeChat-specific state is read in the subclass
+        rather than imported into this shared file.
+        """
+        return False
 
     # 根据消息构造context，消息内容相关的触发项写在这里
     def _compose_context(self, ctype: ContextType, content, **kwargs):
@@ -64,7 +92,11 @@ class ChatChannel(Channel):
 
                 group_name_white_list = config.get("group_name_white_list", [])
                 group_name_keyword_white_list = config.get("group_name_keyword_white_list", [])
-                if any(
+                room_decision = self.room_allowed(group_id)
+                if room_decision is False:
+                    logger.debug(f"[chat_channel] room {group_id} switched off, ignore")
+                    return None
+                if room_decision is True or any(
                     [
                         group_name in group_name_white_list,
                         "ALL_GROUP" in group_name_white_list,
@@ -115,7 +147,12 @@ class ChatChannel(Channel):
                 # 校验关键字
                 match_prefix = check_prefix(content, conf().get("group_chat_prefix"))
                 match_contain = check_contain(content, conf().get("group_chat_keyword"))
-                flag = False
+                # A room the operator opened in the console answers whatever is
+                # said in it, so it starts out already triggered. The block
+                # below still runs: it strips the "@bot " prefix off the
+                # content and enforces the nickname blacklist, and an open room
+                # needs both of those exactly as much as any other room does.
+                flag = self.at_free_session(context["msg"].other_user_id)
                 if context["msg"].to_user_id != context["msg"].actual_user_id:
                     if match_prefix is not None or match_contain is not None:
                         flag = True
