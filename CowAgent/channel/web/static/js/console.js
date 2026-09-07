@@ -5591,6 +5591,13 @@ function sendMessage() {
     // typing "/cancel" submits normally). Cancel is wired only to the
     // send button's pointer click — see send-btn listener above.
 
+    // A mirrored (WeChat) conversation is answered from WeChat, not from here.
+    // The textarea and the button are both disabled for one, so neither input
+    // path reaches this line today; the guard keeps that true for any future
+    // caller, because the failure is silent -- the reply would render in the
+    // browser while the contact goes on waiting in WeChat.
+    if (isMirroredSession(sessionId)) return;
+
     const text = chatInput.value.trim();
     if (!text && pendingAttachments.length === 0) return;
 
