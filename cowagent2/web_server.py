@@ -231,10 +231,19 @@ class WebServer:
         session_id = request.match_info["session_id"]
         history = self.memory.get_history(session_id)
         contact = self.scanner.get_contact(session_id) or {}
+        is_group = bool(contact.get("type") == "chatroom" or session_id.endswith("@chatroom"))
+        is_whitelisted = self.config.is_allowed(session_id, session_id if is_group else "")
+        auto_reply = self.config.get_session_auto_reply(session_id)
         return web.json_response({
             "status": "success",
             "session_id": session_id,
-            "contact": contact,
+            "contact": {
+                **contact,
+                "wxid": session_id,
+                "is_group": is_group,
+                "is_whitelisted": is_whitelisted,
+                "auto_reply": auto_reply,
+            },
             "messages": history,
         })
 
