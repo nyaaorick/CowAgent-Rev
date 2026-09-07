@@ -14,6 +14,14 @@ This document establishes the technical roadmap for **CowAgent-Rev** and its ven
    - **Phase 1 MVP**: Verification via WeChat's built-in **File Transfer Assistant (`filehelper`)** — outbound transmission, login status checks, and non-intrusive protocol validation.
    - **Phase 2 MVP**: Full inbound message capture via repaired socket delivery and automated AI reply loop with `glm-4-flash`.
    - **Phase 3 & Beyond**: Multimedia attachment handling, SQLite database handle diagnostics, and connection recovery.
+5. **CowAgent 2 Clean Rebuild (`cowagent2/`)**:
+   Establish a clean, minimalist rewrite of CowAgent completely dedicated to WCF on Windows, discarding legacy multi-channel complexity. Core features include:
+   - **Strict Session Memory Isolation**: Complete context separation between individual `wxid` and group `roomid` sessions.
+   - **Contact & Chatroom Discovery**: Passive runtime scanning and binding of friendly names to `wxid` and `roomid`.
+   - **Whitelist-Only Security**: Default-deny mode; only explicitly checked contacts/rooms can converse with the bot.
+   - **Localhost Management UI**: Modern local dashboard on `http://127.0.0.1:9900` for visual status monitoring and whitelist toggling.
+   - **Seamless Config & API Reuse**: Directly reuse `CowAgent/config.json` (GLM-4-flash keys, base URL, prompt parameters) with zero duplicate setup.
+   - **Singleton Anti-Wedge Guard**: Single long-running process managing WCF, preventing connection drops and DLL lockouts.
 
 ---
 
@@ -52,7 +60,15 @@ This document establishes the technical roadmap for **CowAgent-Rev** and its ven
    │     └── Python Client (clients/python/wcferry/)
    │           └── Wcf RPC Client (pynng connection to 10086 & 10087)
    │
-   ├── CowAgent-Rev Core (CowAgent/)
+   ├── CowAgent 2 Subsystem (cowagent2/)  [NEW REBUILD]
+   │     ├── Gateway: WCF Singleton Adapter (anti-wedge, passive listener)
+   │     ├── Scanner: Contact & Chatroom Discovery + Name Binding
+   │     ├── Whitelist: Strict Default-Deny Access Controller
+   │     ├── Memory: Strictly Isolated Session Context Manager
+   │     ├── Dashboard: Localhost Web Management Console (127.0.0.1:9900)
+   │     └── Reused Config & API: Reads CowAgent/config.json (GLM-4-flash)
+   │
+   ├── CowAgent-Rev Core (CowAgent/) [LEGACY CORE]
    │     ├── Channel Layer: CowAgent/channel/wcf/ (WcfChannel adapter)
    │     ├── Bridge & Orchestrator: CowAgent/bridge/
    │     ├── Multi-Agent Runtime: Agent teams, skills, evolution, persistent memory
@@ -60,28 +76,30 @@ This document establishes the technical roadmap for **CowAgent-Rev** and its ven
    │     └── LLM Provider: Zhipu AI GLM SDK (native glm-4-flash)
    │
    └── Unified Environment
-         └── .venv/ (Python 3.13.15 64-bit with wcferry, pynng, zai-sdk, pytest)
+         └── .venv/ (Python 3.13.15 64-bit with wcferry, pynng, zai-sdk, aiohttp, pytest)
 ```
 
 ### Directory Structure
 ```text
 C:\Users\1\CowAgent-Rev\
 ├── .venv/                         # Shared Python 3.13 virtual environment
-├── CowAgent/                      # Main application codebase
-│   ├── app.py                     # Primary entry point
+├── cowagent2/                     # [NEW] CowAgent 2 Minimalist WCF Chatbot
+│   ├── app.py                     # CowAgent 2 entry point & lifespan runner
+│   ├── config.py                  # Config loader (reuses CowAgent/config.json)
+│   ├── wcf_gateway.py             # WCF singleton gateway & message listener
+│   ├── scanner.py                 # Contact & group chat scanner & name binder
+│   ├── memory.py                  # Strictly isolated session memory engine
+│   ├── bot.py                     # Minimalist GLM-4-flash bot dispatcher
+│   ├── web_server.py              # Localhost Web UI server (aiohttp @ :9900)
+│   ├── static/                    # Dashboard frontend (HTML/CSS/JS)
+│   └── data/                      # Persistent storage (whitelist.json, contacts.json)
+├── CowAgent/                      # Legacy application codebase
+│   ├── app.py                     # Legacy entry point
 │   ├── config.py                  # System configuration loader
-│   ├── agent/                     # Agent runtime, tools, memory, permissions
-│   ├── bridge/                    # Message routing & LLM bridge
-│   ├── channel/                   # Channel implementations (web, terminal, wcf)
-│   ├── tests/                     # 950+ unit & integration test suite
-│   └── docs/                      # CowAgent-Rev system documentation
+│   ├── config.json                # Live configuration & API keys (reused by v2)
+│   └── ...
+├── smoketest/                     # Live smoke test suite
 ├── WeChatFerry/                    # Vendored WeChatFerry (branch 3.9.12.56)
-│   ├── WeChatFerry/               # C++ Visual Studio project
-│   │   ├── spy/                   # Core hooks, rpc_server, message_receiver
-│   │   ├── sdk/                   # DLL injection bootstrap
-│   │   └── wcf/                   # CLI launcher (wcf.exe)
-│   └── clients/python/            # Python wcferry client source
-├── backup/                        # [DEPRECATED / ARCHIVED] Historic patches & notes
 ├── ROADMAP.md                     # This authoritative document
 └── pyproject.toml / requirements  # Project dependency definitions
 ```
@@ -221,6 +239,49 @@ C:\Users\1\CowAgent-Rev\
   - Expose live WCF connection status and bot wxid on the web console (`http://127.0.0.1:9899`).
   - The conversations themselves already appear there (Milestone 4.2b); what is still
     missing is the *connection* state — logged-in wxid, 10086/10087 health.
+
+---
+
+### Milestone 6: CowAgent 2 MVP — Minimalist Architecture, Discovery & Localhost Whitelist
+> **Goal**: From zero, build a clean, minimalist, high-reliability WCF chatbot in `cowagent2/` with strictly isolated session memory, automated contact/room scanning, whitelist-only security, and a Localhost Web UI dashboard.
+
+- [x] **6.1 Project Scaffold & Configuration Reuser (`cowagent2/config.py`)**
+  - Create clean `cowagent2/` package structure.
+  - Transparently load and reuse LLM API configuration from `CowAgent/config.json` (`zhipu_ai_api_key`, `model: glm-4-flash`, `temperature`, `top_p`, prompt templates).
+  - Store CowAgent 2 operational data in `cowagent2/data/` (`whitelist.json`, `contacts_cache.json`).
+- [x] **6.2 WCF Singleton Gateway & Contact/Chatroom Scanner (`cowagent2/wcf_gateway.py`, `cowagent2/scanner.py`)**
+  - Run long-lived WCF singleton adapter (`debug=False`, Release `spy.dll`), protecting against connection drops and Wedge lockouts.
+  - Scan active contacts and chatrooms from WeChat runtime (via open handles, user profile, and active event stream).
+  - Dynamically bind human-readable nicknames and remark names to `wxid` and `roomid`.
+- [x] **6.3 Strictly Isolated Session Memory Engine (`cowagent2/memory.py`)**
+  - Every individual `wxid` and group `roomid` gets an independent memory context container.
+  - Zero context bleeding across different chats; independent message history and token-budget sliding window.
+  - Explicit reset commands (e.g. `#清除记忆`) scoped strictly to the current caller's session.
+- [x] **6.4 Full Human Simulation Subsystem (`cowagent2/human_simulator.py`)**
+  - **Authentic Conversational Persona**: System prompts tuned to emulate a real human WeChat interlocutor (warm, concise, casual tone; strictly bans robotic AI clichés such as *"我是人工智能语言模型"*).
+  - **Realistic Reading & Typing Latency**: Calculates dynamic delays based on inbound reading length (`0.5s - 2.5s`) and outbound typing length (`30 - 60ms` per character with random pauses). Avoids instant 0.05s machine bursts to ensure authentic feel and bypass anti-spam triggers.
+  - **Human-like Group Chat Etiquette**: In group chats, responds only when @mentioned or addressed, behaving like a considerate group member.
+- [x] **6.5 Localhost Web Management Dashboard & Real-Time Monitor (`cowagent2/web_server.py` @ `127.0.0.1:9900`)**
+  - Built with asynchronous `aiohttp` running lightweight REST endpoints and modern web frontend.
+  - Reuses proven patterns from `CowAgent/channel/web`: SSE event streaming, session list browsing, and read-only message inspection.
+  - Displays live WeChat status (logged-in wxid, user nickname, 10086/10087 port health).
+  - Lists all discovered contacts and chatrooms with friendly names and IDs with instant whitelist toggling.
+  - **Real-Time Session Viewer & Chat Monitor (Phase 2 Brought Forward)**: Real-time SSE stream broadcasting inbound & outbound turns; operator can view live conversation bubbles in the browser without opening WeChat client.
+- [x] **6.6 Whitelist Enforced Minimalist Bot Engine (`cowagent2/bot.py`, `cowagent2/app.py`)**
+  - Inbound WCF message arrives from 10087.
+  - Filter: checks if sender `wxid` or `roomid` is explicitly whitelisted. If not, drops silently.
+  - For whitelisted senders: loads isolated session memory -> calls Zhipu AI GLM-4-flash -> applies human simulation pacing -> dispatches response via 10086 -> persists memory -> streams update to Localhost UI.
+
+---
+
+### Phase 2: Stability & Interaction Enhancement (Post-MVP)
+- **Real-time Web Console Chat Listening & Conversation Replay**:
+  - Full bidirectional SSE/WebSocket event streaming reused from CowAgent web channel patterns.
+  - Live chat inspection with message bubble views, avatars, timestamps, and search.
+- **Human Conversational Polish & Multi-Modal Extensions**:
+  - Fine-grained typing pace calibration (customizable WPM and hesitation rates).
+  - Natural multi-message splitting (chunking replies into two short consecutive messages like humans do on WeChat).
+  - Image reception and analysis via GLM-4V / vision models.
 
 ---
 

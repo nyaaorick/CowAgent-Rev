@@ -6,3 +6,5 @@ __pycache__/
 .idea/
 .vscode/
 .git_backup/
+WeChatFerry/
+cowagent2/data/contacts_cache.json

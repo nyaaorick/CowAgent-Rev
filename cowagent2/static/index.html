@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CowAgent 2 — 极简微信智能体控制台</title>
+  <style>
+    :root {
+      --bg-primary: #0f172a;
+      --bg-secondary: #1e293b;
+      --bg-card: #1e293b;
+      --bg-hover: #334155;
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --border-color: #334155;
+      --accent-wechat: #07c160;
+      --accent-blue: #3b82f6;
+      --accent-red: #ef4444;
+      --accent-yellow: #f59e0b;
+      --bubble-bot: #07c160;
+      --bubble-user: #334155;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-color);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .brand h1 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      letter-spacing: -0.025em;
+    }
+    .badge {
+      font-size: 0.75rem;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      font-weight: 500;
+    }
+    .badge-wechat { background: rgba(7, 193, 96, 0.2); color: var(--accent-wechat); border: 1px solid rgba(7, 193, 96, 0.4); }
+    .badge-blue { background: rgba(59, 130, 246, 0.2); color: var(--accent-blue); border: 1px solid rgba(59, 130, 246, 0.4); }
+    .badge-yellow { background: rgba(245, 158, 11, 0.2); color: var(--accent-yellow); border: 1px solid rgba(245, 158, 11, 0.4); }
+    .badge-red { background: rgba(239, 68, 68, 0.2); color: var(--accent-red); border: 1px solid rgba(239, 68, 68, 0.4); }
+
+    .status-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .status-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.825rem;
+      color: var(--text-secondary);
+    }
+    .indicator-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .dot-green { background: var(--accent-wechat); box-shadow: 0 0 8px var(--accent-wechat); }
+    .dot-red { background: var(--accent-red); }
+    .dot-yellow { background: var(--accent-yellow); }
+
+    /* Navigation tabs */
+    .tab-bar {
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-color);
+      padding: 0 24px;
+      display: flex;
+      gap: 16px;
+    }
+    .tab-btn {
+      padding: 12px 16px;
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 500;
+      position: relative;
+      transition: color 0.15s ease;
+    }
+    .tab-btn:hover { color: var(--text-primary); }
+    .tab-btn.active {
+      color: var(--accent-wechat);
+    }
+    .tab-btn.active::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: var(--accent-wechat);
+    }
+
+    main {
+      flex: 1;
+      padding: 24px;
+      max-width: 1400px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* Whitelist section */
+    .toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .search-input {
+      padding: 8px 14px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      color: var(--text-primary);
+      width: 280px;
+      outline: none;
+      font-size: 0.85rem;
+    }
+    .search-input:focus { border-color: var(--accent-wechat); }
+
+    .btn {
+      padding: 8px 16px;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      font-size: 0.85rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+    .btn:hover { background: var(--bg-hover); }
+    .btn-primary {
+      background: var(--accent-wechat);
+      color: #fff;
+      border: none;
+    }
+    .btn-primary:hover { opacity: 0.9; }
+
+    .btn-copy {
+      background: transparent;
+      border: 1px solid var(--border-color);
+      color: var(--text-secondary);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      line-height: 1;
+      transition: all 0.15s ease;
+    }
+    .btn-copy:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+      border-color: var(--accent-blue);
+    }
+
+    .table-container {
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.85rem;
+    }
+    th {
+      background: rgba(15, 23, 42, 0.5);
+      padding: 12px 16px;
+      color: var(--text-secondary);
+      font-weight: 500;
+      border-bottom: 1px solid var(--border-color);
+    }
+    td {
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+    }
+    tr:hover { background: rgba(51, 65, 85, 0.3); }
+
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 36px;
+      height: 20px;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: var(--border-color);
+      transition: .2s;
+      border-radius: 20px;
+    }
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 14px;
+      width: 14px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .2s;
+      border-radius: 50%;
+    }
+    input:checked + .slider { background-color: var(--accent-wechat); }
+    input:checked + .slider:before { transform: translateX(16px); }
+
+    /* Live Chat & Sessions layout */
+    .chat-layout {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 16px;
+      height: calc(100vh - 170px);
+      min-height: 520px;
+    }
+    .session-list-panel {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .panel-header {
+      padding: 12px 16px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .session-items {
+      flex: 1;
+      overflow-y: auto;
+    }
+    .session-item {
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(51, 65, 85, 0.4);
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .session-item:hover { background: var(--bg-hover); }
+    .session-item.active {
+      background: rgba(7, 193, 96, 0.12);
+      border-left: 3px solid var(--accent-wechat);
+    }
+    .session-name {
+      font-size: 0.875rem;
+      font-weight: 500;
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+    .session-id {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      font-family: monospace;
+    }
+
+    .chat-view-panel {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .message-row {
+      display: flex;
+      flex-direction: column;
+      max-width: 75%;
+    }
+    .message-row.user {
+      align-self: flex-start;
+    }
+    .message-row.bot {
+      align-self: flex-end;
+    }
+    .message-meta {
+      font-size: 0.725rem;
+      color: var(--text-secondary);
+      margin-bottom: 4px;
+      display: flex;
+      gap: 6px;
+    }
+    .message-row.bot .message-meta {
+      align-self: flex-end;
+    }
+    .bubble {
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 0.875rem;
+      line-height: 1.5;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
+    .bubble.user {
+      background: var(--bubble-user);
+      color: var(--text-primary);
+      border-top-left-radius: 2px;
+    }
+    .bubble.bot {
+      background: var(--bubble-bot);
+      color: #ffffff;
+      border-top-right-radius: 2px;
+    }
+
+    .chat-footer {
+      padding: 12px 16px;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      gap: 10px;
+      background: rgba(15, 23, 42, 0.4);
+    }
+    .chat-footer input {
+      flex: 1;
+      padding: 8px 14px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      color: var(--text-primary);
+      outline: none;
+    }
+    .chat-footer input:focus { border-color: var(--accent-wechat); }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--text-secondary);
+      gap: 8px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>CowAgent 2</h1>
+      <span class="badge badge-wechat">WCF WeChat 3.9.12.56</span>
+      <span class="badge badge-blue" id="model-badge">GLM-4-flash</span>
+      <span class="badge badge-yellow" id="human-badge">真人拟态中</span>
+    </div>
+    <div class="status-group">
+      <div class="status-item">
+        <div class="indicator-dot" id="dot-process"></div>
+        <span id="text-process">微信检测中...</span>
+      </div>
+      <div class="status-item">
+        <div class="indicator-dot" id="dot-wcf"></div>
+        <span id="text-wcf">WCF 网关未连接</span>
+      </div>
+      <div class="status-item" id="account-info">
+        <span>当前账号: 未登录</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab('tab-whitelist')">📋 联系人白名单</button>
+    <button class="tab-btn" onclick="switchTab('tab-chat')">💬 实时会话与监听 (Phase 2)</button>
+  </div>
+
+  <main>
+    <!-- Whitelist tab -->
+    <section id="tab-whitelist" class="tab-content active">
+      <div class="toolbar">
+        <input type="text" class="search-input" id="contact-search" placeholder="🔍 快速定位 WXID、群 ID 或备注名..." oninput="filterContacts()">
+        <div style="display: flex; gap: 8px;">
+          <button class="btn" onclick="fetchContacts()">🔄 刷新列表</button>
+          <button class="btn" style="border-color: var(--accent-blue); color: var(--accent-blue);" onclick="openAddContactModal()">➕ 添加联系人/群聊</button>
+          <button class="btn btn-primary" onclick="triggerScan()">🔍 扫描微信联系人</button>
+        </div>
+      </div>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 70px;">类型</th>
+              <th style="width: 320px;">微信唯一标识 (WXID / Room ID)</th>
+              <th>显示名称 / 备注</th>
+              <th style="width: 110px; text-align: center;">白名单准入</th>
+              <th style="width: 110px; text-align: center;">直接自动回复</th>
+            </tr>
+          </thead>
+          <tbody id="contacts-table-body">
+            <tr><td colspan="5" style="text-align: center; color: var(--text-secondary); padding: 30px;">正在加载联系人数据...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Live Chat & Sessions tab (Reusing CowAgent console) -->
+    <section id="tab-chat" class="tab-content">
+      <div class="chat-layout">
+        <div class="session-list-panel">
+          <div class="panel-header">
+            <span>活动会话清单</span>
+            <button class="btn" style="padding: 4px 8px; font-size: 0.75rem;" onclick="fetchSessions()">刷新</button>
+          </div>
+          <div class="session-items" id="session-list">
+            <div class="empty-state">暂无会话</div>
+          </div>
+        </div>
+
+        <div class="chat-view-panel">
+          <div class="panel-header">
+            <span id="current-session-title">请选择左侧会话以监听对话</span>
+            <div style="display: flex; gap: 8px;">
+              <span class="badge badge-wechat" id="stream-status">🔴 实时监听准备就绪</span>
+              <button class="btn" style="padding: 4px 8px; font-size: 0.75rem;" onclick="clearCurrentSession()">清空此会话记忆</button>
+            </div>
+          </div>
+          <div class="chat-messages" id="chat-messages">
+            <div class="empty-state">
+              <p>从左侧选择一个会话，即可在网页端静默观察与该用户的微信对话流。</p>
+              <p style="font-size: 0.8rem; color: var(--text-secondary);">（符合安全规范：网页端处于只读监听模式，杜绝人为意外插话破坏对话线程）</p>
+            </div>
+          </div>
+          <div class="chat-footer">
+            <input type="text" id="test-msg-input" placeholder="向指定 WXID / filehelper 发送测试消息..." onkeydown="if(event.key==='Enter') sendTestMessage()">
+            <button class="btn btn-primary" onclick="sendTestMessage()">发送测试</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    let allContacts = [];
+    let currentSessionId = "";
+    let sseSource = null;
+
+    function copyWxid(text, btn) {
+      navigator.clipboard.writeText(text).then(() => {
+        const orig = btn.innerHTML;
+        btn.innerHTML = '已复制';
+        btn.style.color = 'var(--accent-wechat)';
+        setTimeout(() => {
+          btn.innerHTML = orig;
+          btn.style.color = '';
+        }, 1200);
+      }).catch(() => {
+        prompt('请手动复制 WXID:', text);
+      });
+    }
+
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(sec => sec.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById(tabId).classList.add('active');
+      if (tabId === 'tab-chat') {
+        fetchSessions();
+      }
+    }
+
+    async function fetchStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        
+        // Process dot
+        const dotProc = document.getElementById('dot-process');
+        const textProc = document.getElementById('text-process');
+        if (data.wechat_process_running) {
+          dotProc.className = 'indicator-dot dot-green';
+          textProc.textContent = 'WeChat 运行中';
+        } else {
+          dotProc.className = 'indicator-dot dot-red';
+          textProc.textContent = 'WeChat 未运行';
+        }
+
+        // WCF dot
+        const dotWcf = document.getElementById('dot-wcf');
+        const textWcf = document.getElementById('text-wcf');
+        if (data.wcf_connected && data.is_login) {
+          dotWcf.className = 'indicator-dot dot-green';
+          textWcf.textContent = 'WCF 网关在线';
+          const name = data.user_info.name || '未知';
+          const wxid = data.user_info.wxid || '';
+          document.getElementById('account-info').innerHTML = `<span>当前账号: <strong>${escapeHtml(name)}</strong> (<code style="color: #38bdf8;">${escapeHtml(wxid)}</code>)</span>`;
+        } else if (data.wcf_connected) {
+          dotWcf.className = 'indicator-dot dot-yellow';
+          textWcf.textContent = 'WCF 就绪 (待登录)';
+        } else {
+          dotWcf.className = 'indicator-dot dot-red';
+          textWcf.textContent = 'WCF 未连接';
+        }
+
+        if (data.model) {
+          document.getElementById('model-badge').textContent = data.model;
+        }
+      } catch (e) {
+        console.error('Failed to fetch status:', e);
+      }
+    }
+
+    async function fetchContacts() {
+      try {
+        const res = await fetch('/api/contacts');
+        const data = await res.json();
+        allContacts = data.contacts || [];
+        renderContacts(allContacts);
+      } catch (e) {
+        console.error('Failed to fetch contacts:', e);
+      }
+    }
+
+    function renderContacts(contacts) {
+      const tbody = document.getElementById('contacts-table-body');
+      if (!contacts.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary); padding: 30px;">未发现可用联系人</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = contacts.map(c => {
+        const typeBadge = c.is_group 
+          ? '<span class="badge badge-blue">群聊</span>' 
+          : '<span class="badge badge-wechat">好友</span>';
+        const name = c.name || c.nickname || c.remark || '-';
+        const isWhitelisted = c.is_whitelisted ? 'checked' : '';
+        const isAutoReply = c.auto_reply ? 'checked' : '';
+
+        return `
+          <tr>
+            <td>${typeBadge}</td>
+            <td>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <code style="font-size: 0.85rem; font-weight: 600; color: #38bdf8; background: rgba(56, 189, 248, 0.08); padding: 3px 8px; border-radius: 4px; font-family: Consolas, monospace; letter-spacing: 0.02em;">${escapeHtml(c.wxid)}</code>
+                <button class="btn-copy" onclick="copyWxid('${escapeHtml(c.wxid)}', this)" title="复制 WXID">📋</button>
+              </div>
+            </td>
+            <td><span style="color: var(--text-primary); font-size: 0.85rem;">${escapeHtml(name)}</span></td>
+            <td style="text-align: center;">
+              <label class="switch">
+                <input type="checkbox" ${isWhitelisted} onchange="toggleWhitelist('${escapeHtml(c.wxid)}', ${c.is_group}, this.checked)">
+                <span class="slider"></span>
+              </label>
+            </td>
+            <td style="text-align: center;">
+              <label class="switch">
+                <input type="checkbox" ${isAutoReply} onchange="toggleAutoReply('${escapeHtml(c.wxid)}', this.checked)">
+                <span class="slider"></span>
+              </label>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function filterContacts() {
+      const q = document.getElementById('contact-search').value.toLowerCase().trim();
+      if (!q) {
+        renderContacts(allContacts);
+        return;
+      }
+      const filtered = allContacts.filter(c => 
+        (c.name && c.name.toLowerCase().includes(q)) || 
+        (c.nickname && c.nickname.toLowerCase().includes(q)) || 
+        c.wxid.toLowerCase().includes(q)
+      );
+      renderContacts(filtered);
+    }
+
+    async function toggleWhitelist(targetId, isGroup, enable) {
+      try {
+        await fetch('/api/whitelist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target_id: targetId, is_group: isGroup, enable: enable })
+        });
+      } catch (e) {
+        alert('切换白名单失败: ' + e);
+      }
+    }
+
+    async function toggleAutoReply(targetId, enable) {
+      try {
+        await fetch('/api/auto_reply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target_id: targetId, enable: enable })
+        });
+      } catch (e) {
+        alert('设置自动回复失败: ' + e);
+      }
+    }
+
+    async function triggerScan() {
+      try {
+        const res = await fetch('/api/scan', { method: 'POST' });
+        const data = await res.json();
+        alert(`扫描完成，发现 ${data.count} 个有效联系人与群聊`);
+        fetchContacts();
+      } catch (e) {
+        alert('扫描失败: ' + e);
+      }
+    }
+
+    async function openAddContactModal() {
+      const targetId = prompt("请输入好友的微信 ID (wxid_xxx) 或群聊 ID (xxx@chatroom):");
+      if (!targetId || !targetId.trim()) return;
+      const name = prompt("请输入备注名称（选填）:") || "";
+      try {
+        const res = await fetch('/api/contacts/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target_id: targetId.trim(), name: name.trim(), auto_allow: true })
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+          alert(`已成功添加并自动开启白名单：${targetId.trim()}`);
+          fetchContacts();
+        } else {
+          alert('添加失败: ' + data.message);
+        }
+      } catch (e) {
+        alert('请求失败: ' + e);
+      }
+    }
+
+    async function fetchSessions() {
+      try {
+        const res = await fetch('/api/sessions');
+        const data = await res.json();
+        const list = document.getElementById('session-list');
+        const sessions = data.sessions || [];
+        if (!sessions.length) {
+          list.innerHTML = '<div class="empty-state">暂无已隔离的会话记录</div>';
+          return;
+        }
+
+        list.innerHTML = sessions.map(s => {
+          const isActive = s.session_id === currentSessionId ? 'active' : '';
+          const groupBadge = s.is_group ? ' [群]' : '';
+          return `
+            <div class="session-item ${isActive}" onclick="selectSession('${escapeHtml(s.session_id)}', '${escapeHtml(s.display_name)}')">
+              <div class="session-name">
+                <span style="font-weight: 600; color: #38bdf8; font-family: Consolas, monospace; font-size: 0.85rem;">${escapeHtml(s.session_id)}</span>
+                <span style="font-size: 0.75rem; color: var(--accent-wechat);">${s.message_count} 条</span>
+              </div>
+              <div class="session-id" style="color: var(--text-secondary); font-size: 0.8rem; margin-top: 2px;">${escapeHtml(s.display_name)}${groupBadge}</div>
+            </div>
+          `;
+        }).join('');
+      } catch (e) {
+        console.error('Failed to fetch sessions:', e);
+      }
+    }
+
+    async function selectSession(sessionId, displayName) {
+      currentSessionId = sessionId;
+      document.getElementById('current-session-title').textContent = `正在监听: ${displayName} (${sessionId})`;
+      fetchSessions();
+      loadHistory(sessionId);
+    }
+
+    async function loadHistory(sessionId) {
+      const container = document.getElementById('chat-messages');
+      try {
+        const res = await fetch(`/api/sessions/${sessionId}/history`);
+        const data = await res.json();
+        const msgs = data.messages || [];
+
+        if (!msgs.length) {
+          container.innerHTML = '<div class="empty-state">该会话暂无历史消息</div>';
+          return;
+        }
+
+        container.innerHTML = msgs.map(m => {
+          const isUser = m.role === 'user';
+          const rowClass = isUser ? 'user' : 'bot';
+          const bubbleClass = isUser ? 'user' : 'bot';
+          const senderLabel = isUser ? '对方' : 'CowAgent 2 (真人拟态)';
+          const timeStr = m.time ? new Date(m.time * 1000).toLocaleTimeString() : '';
+
+          return `
+            <div class="message-row ${rowClass}">
+              <div class="message-meta">
+                <span>${senderLabel}</span>
+                <span>${timeStr}</span>
+              </div>
+              <div class="bubble ${bubbleClass}">${escapeHtml(m.content)}</div>
+            </div>
+          `;
+        }).join('');
+        container.scrollTop = container.scrollHeight;
+      } catch (e) {
+        container.innerHTML = `<div class="empty-state">加载历史失败: ${e}</div>`;
+      }
+    }
+
+    async function clearCurrentSession() {
+      if (!currentSessionId) {
+        alert('请先选择一个会话');
+        return;
+      }
+      if (!confirm(`确定清空会话 [${currentSessionId}] 的所有上下文记忆？`)) return;
+
+      try {
+        await fetch(`/api/sessions/${currentSessionId}/clear`, { method: 'POST' });
+        loadHistory(currentSessionId);
+        fetchSessions();
+      } catch (e) {
+        alert('清空失败: ' + e);
+      }
+    }
+
+    async function sendTestMessage() {
+      const input = document.getElementById('test-msg-input');
+      const text = input.value.trim();
+      if (!text) return;
+
+      const receiver = currentSessionId || 'filehelper';
+      try {
+        const res = await fetch('/api/test_send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ receiver: receiver, message: text })
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+          input.value = '';
+          alert(`测试消息已投递至 ${receiver} (返回码: ${data.return_code})`);
+        } else {
+          alert('发送失败: ' + data.message);
+        }
+      } catch (e) {
+        alert('请求失败: ' + e);
+      }
+    }
+
+    function setupSSE() {
+      const statusBadge = document.getElementById('stream-status');
+      sseSource = new EventSource('/api/stream');
+
+      sseSource.onopen = () => {
+        statusBadge.textContent = '🟢 实时监听在线';
+      };
+
+      sseSource.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.event === 'chat_turn') {
+            const turn = payload.data;
+            if (currentSessionId && turn.session_id === currentSessionId) {
+              loadHistory(currentSessionId);
+            }
+            fetchSessions();
+          } else if (payload.event === 'inbound_msg') {
+            fetchContacts();
+            fetchSessions();
+          }
+        } catch (e) {
+          console.error('SSE parse error:', e);
+        }
+      };
+
+      sseSource.onerror = () => {
+        statusBadge.textContent = '🟡 监听重连中...';
+      };
+    }
+
+    function escapeHtml(str) {
+      return (str || '')
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    // Init
+    fetchStatus();
+    fetchContacts();
+    setupSSE();
+    setInterval(fetchStatus, 5000);
+  </script>
+</body>
+</html>
+
