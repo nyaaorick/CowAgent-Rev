@@ -48,7 +48,8 @@ def test_no_api_key_shaped_string_anywhere_in_the_folder():
 
 
 def test_the_example_config_defaults_to_a_channel_that_can_actually_start():
-    """A first run must start on a supported channel."""
+    """`wcf` needs a logged-in WeChat and an injected spy.dll, so a first run
+    must not default to it."""
     cfg = json.load(io.open(os.path.join(DEPLOY, "config.example.json"), encoding="utf-8"))
     assert cfg["channel_type"] in ("web", "terminal")
 
@@ -69,9 +70,13 @@ def test_run_cmd_sets_utf8_before_anything_prints():
     assert "chcp 65001" in cmd
 
 
-def test_run_cmd_does_not_mention_submodules():
+def test_run_cmd_explains_where_the_wechatferry_runtime_comes_from():
+    """WeChatFerry is vendored source, but the runtime is the wcferry wheel.
+    Confusing the two has already produced wrong conclusions (ROADMAP), and
+    submodule advice would be wrong outright."""
     cmd = _read("run.cmd")
-    assert "git submodule" not in cmd
+    assert "WeChatFerry" in cmd
+    assert "git submodule" not in cmd, "WeChatFerry is vendored; submodule advice is wrong"
 
 
 def test_the_real_config_is_git_ignored():

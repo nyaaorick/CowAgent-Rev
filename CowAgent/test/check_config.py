@@ -36,8 +36,20 @@ def main() -> None:
         )
 
     channel = str(cfg.get("channel_type", "")).strip()
-    if channel not in ("web", "terminal"):
-        fail(f"channel_type {channel!r} is not supported. Use 'web' or 'terminal'.")
+    if channel == "wcf":
+        try:
+            import wcferry  # noqa: F401
+        except ImportError:
+            fail("channel_type is 'wcf' but the wcferry package is not installed.\n"
+                 r"    Run: .venv\Scripts\pip install wcferry" "\n"
+                 "    (wcferry is Windows-only; requirements.txt skips it elsewhere by design.)")
+        if not cfg.get("wcf_contact_white_list"):
+            fail("channel_type is 'wcf' but wcf_contact_white_list is empty, so the "
+                 "agent would answer nobody.\n"
+                 "    Add a wxid or display name (start with 'filehelper', the "
+                 "File Transfer Assistant).")
+    elif channel not in ("web", "terminal"):
+        fail(f"channel_type {channel!r} is not supported. Use 'web', 'terminal', or 'wcf'.")
 
     print(f"    model={cfg.get('model')}  channel={channel}  port={cfg.get('web_port', 9899)}")
 
