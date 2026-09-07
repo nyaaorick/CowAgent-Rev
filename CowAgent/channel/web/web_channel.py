@@ -42,6 +42,17 @@ from agent.permission import (
     normalize_mode as permission_normalize_mode,
 )
 
+# Channels whose conversations the console's list shows. "web" is the console's
+# own; "wcf" is the WeChat bot, mirrored in so the operator can watch a chat the
+# agent is holding on WeChat without opening WeChat. Channels absent from this
+# tuple keep their conversations out of the console entirely.
+CONSOLE_SESSION_CHANNELS = ("web", const.WCF)
+
+# Conversations the console may only display, never continue: sending into one
+# from here would reply in the browser, not in WeChat, silently splitting a
+# conversation the contact still thinks is one thread.
+READ_ONLY_SESSION_CHANNELS = (const.WCF,)
+
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg"}
 VIDEO_EXTENSIONS = {".mp4", ".webm", ".avi", ".mov", ".mkv"}
 
@@ -70,6 +81,31 @@ def _parse_sse_cursor(*values) -> int:
         except (TypeError, ValueError):
             cursors.append(0)
     return max(cursors, default=0)
+
+
+def _join_list_field(value) -> str:
+    """A list-typed config value as one editable line.
+
+    The console edits these as text, so a list has to survive the round trip
+    through an <input>. Comma-separated is what the rest of the config already
+    uses for multi-value keys (``channel_type``), so it needs no explaining.
+    """
+    if isinstance(value, (list, tuple)):
+        return ", ".join(str(item).strip() for item in value if str(item).strip())
+    return str(value or "")
+
+
+def _split_list_field(value) -> list:
+    """One edited line back into a list, dropping blanks.
+
+    A value that is already a list passes through: the desktop client and the
+    API can send one directly, and re-splitting a list would stringify it.
+    """
+    if isinstance(value, (list, tuple)):
+        items = list(value)
+    else:
+        items = str(value or "").split(",")
+    return [str(item).strip() for item in items if str(item).strip()]
 
 
 def _read_config_file_for_write() -> dict:
@@ -1739,6 +1775,7 @@ class WebChannel(ChatChannel):
             zh_channels = [
                 ("web", "Web"),
                 ("terminal", "Terminal"),
+                ("wcf", "微信 (WeChatFerry)"),
             ]
             en_channels = list(zh_channels)
             channels = en_channels if i18n.get_language() == "en" else zh_channels
@@ -4040,8 +4077,32 @@ class ModelsHandler:
 class ChannelsHandler:
     """API for managing external channel configurations (feishu, dingtalk, etc)."""
 
-    # External channel definitions.
-    CHANNEL_DEFS = OrderedDict([])
+    # This dict is what the console's channel panel renders, so an entry for a
+    # channel that cannot connect would offer the operator a dead card. `wcf`
+    # needs no credential fields -- WeChatFerry authenticates through the WeChat
+    # client already logged in on the host -- but it does need to know which
+    # contacts the agent may answer, which is the one thing the operator must
+    # set before the bot speaks to anybody.
+    CHANNEL_DEFS = OrderedDict([
+        ("wcf", {
+            "label": {"zh": "微信 (WeChatFerry)", "en": "WeChat (WeChatFerry)"},
+            "icon": "fa-weixin",
+            "color": "emerald",
+            "fields": [
+                {
+                    "key": "wcf_contact_white_list",
+                    "type": "list",
+                    "label": {"zh": "允许对话的联系人", "en": "Contacts the agent answers"},
+                    "hint": {
+                        "zh": "填 wxid 或备注名，一行一个；filehelper 是文件传输助手。"
+                              "留空则不回复任何私聊。",
+                        "en": "One wxid or display name per line; 'filehelper' is the "
+                              "File Transfer Assistant. Empty means no private chat is answered.",
+                    },
+                },
+            ],
+        }),
+    ])
 
     # Channels that lead the list in English. Everything defined above them
     # needs a mainland-China account, so an English user scrolling past those
@@ -4178,6 +4239,8 @@ class ChannelsHandler:
                     raw_val = local_config.get(f["key"], f.get("default", ""))
                     if f["type"] == "secret" and raw_val:
                         display_val = self._mask_secret(str(raw_val))
+                    elif f["type"] == "list":
+                        display_val = _join_list_field(raw_val)
                     else:
                         display_val = raw_val
                     
@@ -4188,9 +4251,15 @@ class ChannelsHandler:
                         label_val = label_val.copy()
                         label_val["zh-Hant"] = i18n.to_traditional(label_val.get("zh", ""))
 
+                    hint_val = f.get("hint", "")
+                    if is_hant and isinstance(hint_val, dict):
+                        hint_val = hint_val.copy()
+                        hint_val["zh-Hant"] = i18n.to_traditional(hint_val.get("zh", ""))
+
                     fields_out.append({
                         "key": f["key"],
                         "label": label_val,
+                        "hint": hint_val,
                         "type": f["type"],
                         "value": display_val,
                         "default": f.get("default", ""),
@@ -4296,6 +4365,8 @@ class ChannelsHandler:
                     value = int(value)
                 elif field_def["type"] == "bool":
                     value = bool(value)
+                elif field_def["type"] == "list":
+                    value = _split_list_field(value)
             if local_config.get(key) != value:
                 changed[key] = value
             local_config[key] = value
@@ -4361,6 +4432,8 @@ class ChannelsHandler:
                     value = int(value)
                 elif field_def["type"] == "bool":
                     value = bool(value)
+                elif field_def["type"] == "list":
+                    value = _split_list_field(value)
             local_config[key] = value
             applied[key] = value
 
@@ -5550,9 +5623,13 @@ def _list_sessions_across_agents(page: int, page_size: int) -> dict:
     for profile in get_agent_registry().list(include_disabled=False):
         try:
             store = get_conversation_store(profile.workspace)
-            chunk = store.list_sessions(channel_type="web", page=1, page_size=take)
+            chunk = store.list_sessions(
+                channel_type=CONSOLE_SESSION_CHANNELS, page=1, page_size=take
+            )
             project_map = project_store.get_project_map(profile.id)
-            session_ids = store.list_session_ids(channel_type="web")
+            session_ids = store.list_session_ids(
+                channel_type=CONSOLE_SESSION_CHANNELS
+            )
         except Exception as e:
             # One unreadable workspace must not blank out the whole list; the
             # other Agents' conversations are still perfectly readable.
@@ -5648,7 +5725,7 @@ class SessionsHandler:
                 _get_workspace_root(agent_id=agent_id)
             )
             result = store.list_sessions(
-                channel_type="web",
+                channel_type=CONSOLE_SESSION_CHANNELS,
                 page=page,
                 page_size=page_size,
             )

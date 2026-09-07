@@ -381,6 +381,8 @@ const I18N = {
         edit_disabled_reply_active: '正在生成回复，暂时无法编辑。',
         delete_disabled_reply_active: '正在生成回复，暂时无法删除。',
         untitled_session: '新对话',
+        wcf_session_label: '微信',
+        wcf_session_readonly: '这是微信对话，只能在这里查看；回复请在微信里发。',
         context_cleared: '— 以上内容已从上下文中移除 —',
         tip_new_chat: '新建对话',
         tip_clear_context: '清除上下文',
@@ -785,6 +787,8 @@ const I18N = {
         edit_disabled_reply_active: '正在生成回覆，暫時無法編輯。',
         delete_disabled_reply_active: '正在生成回覆，暫時無法刪除。',
         untitled_session: '新對話',
+        wcf_session_label: '微信',
+        wcf_session_readonly: '這是微信對話，只能在這裡查看；回覆請在微信裡發。',
         context_cleared: '— 以上內容已從上下文中移除 —',
         tip_new_chat: '新建對話',
         tip_clear_context: '清除上下文',
@@ -1184,6 +1188,8 @@ const I18N = {
         edit_disabled_reply_active: 'Reply is being generated; editing is temporarily unavailable.',
         delete_disabled_reply_active: 'Reply is being generated; deletion is temporarily unavailable.',
         untitled_session: 'New Chat',
+        wcf_session_label: 'WeChat',
+        wcf_session_readonly: 'A WeChat conversation, shown here read-only. Reply from WeChat.',
         context_cleared: '— Context above has been cleared —',
         tip_new_chat: 'New Chat',
         tip_clear_context: 'Clear Context',
@@ -4066,6 +4072,20 @@ sendBtn.addEventListener('click', () => {
     }
 });
 
+// Lock or release the composer for the open conversation. A WeChat chat is
+// mirrored here for watching; typing into it would send the reply to the
+// browser while the contact keeps waiting in WeChat.
+function updateComposerLock() {
+    const locked = isMirroredSession(sessionId);
+    const card = document.getElementById('composer-card');
+    if (card) card.classList.toggle('composer-locked', locked);
+    if (chatInput) {
+        chatInput.disabled = locked;
+        chatInput.placeholder = locked ? t('wcf_session_readonly') : t('input_placeholder');
+    }
+    updateSendBtnState();
+}
+
 function updateSendBtnState() {
     if (sendBtnMode === 'cancel') {
         // Self-heal a stuck Cancel button: if there's no live stream backing
@@ -4079,7 +4099,9 @@ function updateSendBtnState() {
             return;
         }
     }
-    sendBtn.disabled = uploadingCount > 0 || (!chatInput.value.trim() && pendingAttachments.length === 0);
+    sendBtn.disabled = isMirroredSession(sessionId)
+        || uploadingCount > 0
+        || (!chatInput.value.trim() && pendingAttachments.length === 0);
     updateSteerBtnState();
 }
 
@@ -7436,6 +7458,7 @@ function _fetchSessionPage(page, clear, onDone) {
             const sessionKey = s => `${(s.agent && s.agent.id) || ''}::${s.session_id}`;
             const seen = new Set(_sessionItems.map(sessionKey));
             sessions.forEach(s => {
+                _sessionChannels[s.session_id] = s.channel || '';
                 const key = sessionKey(s);
                 if (seen.has(key)) return;
                 seen.add(key);
@@ -7443,6 +7466,7 @@ function _fetchSessionPage(page, clear, onDone) {
             });
 
             _renderSessionList();
+            updateComposerLock();
             if (typeof onDone === 'function') onDone();
         })
         .catch(() => { _sessionLoading = false; });
@@ -7648,6 +7672,16 @@ function deleteProject(path, name) {
     );
 }
 
+// Conversations the console can display but not continue, keyed by session id.
+// Sending into one from here would answer in the browser while the contact
+// waits in WeChat, so the composer locks instead.
+const MIRRORED_CHANNELS = ['wcf'];
+let _sessionChannels = {};
+
+function isMirroredSession(sid) {
+    return MIRRORED_CHANNELS.includes(_sessionChannels[sid]);
+}
+
 function _sessionItemEl(s, indent) {
     const item = document.createElement('div');
     const ownerId = (s.agent && s.agent.id) || '';
@@ -7668,11 +7702,16 @@ function _sessionItemEl(s, indent) {
     const roster = s.participants || [];
     const crowd = roster.length > 1 ? roster.slice(0, 3) : null;
     const overflow = roster.length - 3;
+    const mirrored = MIRRORED_CHANNELS.includes(s.channel || '');
+    if (mirrored) item.classList.add('session-item-mirrored');
+    const plainIcon = mirrored
+        ? `<i class="fab fa-weixin session-icon" title="${escapeHtml(t('wcf_session_label'))}"></i>`
+        : `<i class="fas ${s.pinned ? 'fa-thumbtack' : 'fa-message'} session-icon"></i>`;
     const face = crowd
         ? `<span class="session-faces">${crowd.map(a => agentAvatarHTML(a, 20)).join('')}`
             + (overflow > 0 ? `<span class="session-face-more">+${overflow}</span>` : '')
             + `</span>`
-        : `<i class="fas ${s.pinned ? 'fa-thumbtack' : 'fa-message'} session-icon"></i>`;
+        : plainIcon;
     item.innerHTML = `
         ${face}
         <span class="session-title" title="${escapeHtml(title)}">${escapeHtml(title)}</span>
@@ -7867,6 +7906,7 @@ function switchSession(newSessionId, agentId) {
     if (_isMobileView()) closeSessionPanel();
     if (currentView !== 'chat') navigateTo('chat');
     renderComposerIdentity();
+    updateComposerLock();
 }
 
 // In-place rename a session title: replace the title <span> with an <input>,
@@ -11264,10 +11304,19 @@ function toggleChannelTeam(iid, agentId) {
     bindChannelAgent(chName, ownerId, iid, members);
 }
 
+// A label or hint is either a plain string or a {zh, en, zh-Hant} map, the same
+// two shapes the channel card's own label comes in.
+function localizedText(value) {
+    if (!value) return '';
+    if (typeof value === 'object') return value[currentLang] || value.en || '';
+    return String(value);
+}
+
 function buildChannelFieldsHtml(chName, fields) {
     let html = '';
     fields.forEach(f => {
         const inputId = `ch-${chName}-${f.key}`;
+        const label = localizedText(f.label);
         let inputHtml = '';
         if (f.type === 'bool') {
             const checked = f.value ? 'checked' : '';
@@ -11284,7 +11333,7 @@ function buildChannelFieldsHtml(chName, fields) {
                        bg-slate-50 dark:bg-white/5 text-sm text-slate-800 dark:text-slate-100
                        focus:outline-none focus:border-primary-500 font-mono transition-colors
                        ${f.value ? 'cfg-key-masked' : ''}"
-                placeholder="${escapeHtml(f.label)}">`;
+                placeholder="${escapeHtml(label)}">`;
         } else {
             const inputType = f.type === 'number' ? 'number' : 'text';
             inputHtml = `<input id="${inputId}" type="${inputType}" value="${escapeHtml(String(f.value ?? f.default ?? ''))}"
@@ -11292,11 +11341,14 @@ function buildChannelFieldsHtml(chName, fields) {
                 class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600
                        bg-slate-50 dark:bg-white/5 text-sm text-slate-800 dark:text-slate-100
                        focus:outline-none focus:border-primary-500 font-mono transition-colors"
-                placeholder="${escapeHtml(f.label)}">`;
+                placeholder="${escapeHtml(label)}">`;
         }
+        const hintText = localizedText(f.hint);
+        const hint = hintText ? `<p class="mt-1.5 text-xs text-slate-400 dark:text-slate-500">${escapeHtml(hintText)}</p>` : '';
         html += `<div>
-            <label class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1.5">${escapeHtml(f.label)}</label>
+            <label class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1.5">${escapeHtml(label)}</label>
             ${inputHtml}
+            ${hint}
         </div>`;
     });
     return html;

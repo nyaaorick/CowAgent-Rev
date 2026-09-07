@@ -390,6 +390,10 @@
 }
 .dark .session-icon { color: #525252; }
 .session-item.active .session-icon { color: #4ABE6E; }
+/* A conversation the agent is holding on WeChat. WeChat's own green marks it
+   in the list, so it reads as "elsewhere" rather than as a console chat. */
+.session-item-mirrored .session-icon { color: #07C160; }
+.dark .session-item-mirrored .session-icon { color: #07C160; }
 .session-title {
     flex: 1;
     min-width: 0;
@@ -1394,6 +1398,21 @@
 }
 /* Drag-over highlight reuses the focus treatment. */
 .composer-card.drag-over { border-color: #4ABE6E; background: #fff; }
+
+/* A mirrored (WeChat) conversation is readable here but answered from WeChat.
+   The card goes quiet rather than disappearing, so the placeholder can say
+   where the reply belongs. */
+.composer-card.composer-locked {
+    opacity: 0.72;
+    background: #f1f5f9;
+}
+.composer-card.composer-locked:focus-within {
+    border-color: #e2e8f0;
+    box-shadow: none;
+    background: #f1f5f9;
+}
+.dark .composer-card.composer-locked { background: rgba(255, 255, 255, 0.03); }
+.composer-card.composer-locked .composer-textarea { cursor: not-allowed; }
 
 .composer-textarea {
     width: 100%;
