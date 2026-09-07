@@ -89,6 +89,12 @@ class WcfChannel(ChatChannel):
         mode = "local (spawns wcf.exe)" if host is None else f"remote {host}:{port}"
         logger.info(f"[WCF] connecting in {mode} mode ...")
 
+        # Refuse to hand a doomed connection to wcferry: its constructor calls
+        # os._exit(-2) when the dial fails, which no except block can catch and
+        # which takes the web console down with it. See _ensure_spy_listening.
+        if host is None:
+            self._ensure_spy_listening(port, debug)
+
         # block=True: returns only once WeChat is logged in.
         self.wcf = Wcf(host=host, port=port, debug=debug)
 
@@ -136,6 +142,77 @@ class WcfChannel(ChatChannel):
 
         logger.info("[WCF] receiving messages")
         self._recv_loop()
+
+    def _ensure_spy_listening(self, port, debug):
+        """Get spy.dll injected and answering on ``port``, or raise saying why.
+
+        This exists because of how wcferry fails. ``Wcf(host=None)`` runs
+        ``wcf.exe start <port>`` and accepts exit code 10 ("spy 已注入") as
+        "already ready" -- but a spy can be injected with its RPC server
+        stopped, which is what an earlier ``cleanup()`` leaves behind
+        (ROADMAP WCF-BUG-03). Nothing then listens, the dial fails, and
+        wcferry answers with ``os._exit(-2)``: not an exception, an immediate
+        process kill. The channel thread cannot catch it and the web console
+        dies with it, for a fault that only concerns WeChat.
+
+        So the injection is driven here first, where the exit code can be read
+        against the port's actual state, and a bad one becomes an ordinary
+        exception that ChannelManager logs while every other channel keeps
+        running.
+        """
+        import subprocess
+
+        if _port_listening(port):
+            return  # spy is already up and answering; Wcf will just dial it.
+
+        try:
+            import wcferry
+            wcf_exe = os.path.join(os.path.dirname(wcferry.__file__), "wcf.exe")
+        except Exception as e:
+            raise RuntimeError(f"cannot locate wcf.exe: {e}") from e
+
+        cmd = [wcf_exe, "start", str(port)] + (["debug"] if debug else [])
+        try:
+            rc = subprocess.run(
+                cmd, cwd=os.path.dirname(wcf_exe), capture_output=True, timeout=60
+            ).returncode
+        except Exception as e:
+            raise RuntimeError(f"could not run wcf.exe: {e}") from e
+
+        # Exit codes are wcf.exe's own (see its --help): 0 ok, 10 already
+        # injected, 4 WeChat not running, 5 injection refused.
+        if rc == 0 and self._wait_for_port(port):
+            return
+        if rc == 10 and self._wait_for_port(port):
+            return  # injected by an earlier run and still healthy.
+
+        if rc == 10:
+            raise RuntimeError(
+                f"spy.dll is injected into WeChat but nothing is listening on "
+                f"127.0.0.1:{port}. A previous run stopped its RPC server "
+                f"without unloading the DLL, and it cannot be restarted in "
+                f"place. Fully quit WeChat (including the tray icon), reopen "
+                f"and log in, then start CowAgent-Rev again. "
+                f"See {_spy_log_path()}."
+            )
+        if rc == 4:
+            raise RuntimeError(
+                "WeChat is not running. Start WeChat 3.9.12.x and log in first."
+            )
+        raise RuntimeError(
+            f"wcf.exe start failed (exit {rc}); spy.dll was not injected. "
+            f"See {_spy_log_path()}."
+        )
+
+    @staticmethod
+    def _wait_for_port(port, timeout=15):
+        """Wait for the command port, which binds a moment after injection."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if _port_listening(port):
+                return True
+            time.sleep(0.3)
+        return False
 
     def _verify_event_channel(self, cmd_port):
         """Warn if the event socket (``cmd_port + 1``) has not come up.
