@@ -6,7 +6,7 @@ This document establishes the technical roadmap for **CowAgent-Rev**. Scope:
 3. **Single-Host Windows Deployment**: Running the **entire CowAgent-Rev stack on the Windows host**, with **macOS used only as a remote development / debugging workstation** over the LAN.
 4. **Self-Hosted Only**: A private, single-operator deployment. The Electron desktop client and its release pipeline are removed — the only UI is the `web` console.
 
-> **Repo layout note.** Application code lives under `CowAgent/` — `app.py`, `config.py`, and the `agent/ bridge/ channel/ cli/ common/ models/ plugins/ tests/ test/ skills/ docs/` trees. Launch: `cd CowAgent && ..\.venv\Scripts\python app.py`, or double-click `CowAgent/test/run.cmd`. WCF patches and docs are archived under `backup/wcf/`.
+> **Repo layout note.** Application code lives directly at the repository root — `app.py`, `config.py`, and the `agent/ bridge/ channel/ cli/ common/ models/ plugins/ tests/ test/ skills/ docs/` trees. Launch: `.\.venv\Scripts\python app.py`, or double-click `test/run.cmd`. WCF patches and docs are archived under `backup/wcf/`.
 
 > **MVP scope note:** This is a personal single-operator setup — in practice one WeChat account and one GLM API key (`config.json`). The codebase keeps its existing multi-model / multi-agent capability; there is simply **no dedicated work to run several models or several WeChat accounts in parallel** (the former "Phase 5 scaling" is dropped). No code paths are removed for this — it is a scope boundary, not a teardown.
 

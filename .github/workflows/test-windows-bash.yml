@@ -4,16 +4,13 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
-      - "CowAgent/agent/tools/bash/bash.py"
-      - "CowAgent/tests/test_bash_streaming.py"
+      - "agent/tools/bash/bash.py"
+      - "tests/test_bash_streaming.py"
       - ".github/workflows/test-windows-bash.yml"
 
 jobs:
   windows-bash-tests:
     runs-on: windows-latest
-    defaults:
-      run:
-        working-directory: CowAgent
 
     steps:
       - name: Checkout repository

@@ -6,9 +6,7 @@ title CowAgent-Rev
 
 cd /d "%~dp0.."
 set "ROOT=%CD%"
-REM the app lives in CowAgent\, the shared .venv one level up at the repo root
-for %%R in ("%ROOT%\..") do set "REPO=%%~fR"
-set "VENV=%REPO%\.venv"
+set "VENV=%ROOT%\.venv"
 set "CFG=%ROOT%\config.json"
 
 echo.

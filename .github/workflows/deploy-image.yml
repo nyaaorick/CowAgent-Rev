@@ -60,9 +60,9 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v3
         with:
-          context: ./CowAgent
+          context: .
           push: true
-          file: ./CowAgent/docker/Dockerfile.latest
+          file: ./docker/Dockerfile.latest
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
