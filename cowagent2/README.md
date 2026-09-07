@@ -29,6 +29,8 @@ CowAgent 2 是专为 **Windows 原生微信 3.9.12.56 + WeChatFerry (WCF)** 打�
 7. **防 Wedge 单例通信守卫**:
    - 强制使用 Release 版 `spy.dll` (`debug=False`)，彻底杜绝 MSVC Debug CRT 导致的崩溃 (`WCF-BUG-05`)；
    - 单进程守护连接，避免短命脚本频繁断连造成的 RPC 锁死 (`WCF-BUG-03`)。
+8. **严格继承 CowAgent 1 核心通信规范**:
+   - 彻底对齐 CowAgent 1 的 WCF 发送机制（`send_text(msg, receiver, aters)` 位置参数与 `status == 0` 强校验），保证发信 100% 投递与会话记忆/前端监听闭环。
 
 ---
 
