@@ -35,21 +35,40 @@ def main() -> None:
             f"    then paste it into {CFG}"
         )
 
-    channel = str(cfg.get("channel_type", "")).strip()
-    if channel == "wcf":
+    # channel_type runs one channel or several ("wcf, web"), so check each.
+    raw_channel = cfg.get("channel_type", "")
+    if isinstance(raw_channel, list):
+        channels = [str(c).strip() for c in raw_channel if str(c).strip()]
+    else:
+        channels = [c.strip() for c in str(raw_channel).split(",") if c.strip()]
+    channel = ", ".join(channels)
+
+    unsupported = [c for c in channels if c not in ("web", "terminal", "wcf")]
+    if unsupported:
+        fail(f"channel_type {unsupported!r} is not supported. "
+             "Use 'web', 'terminal', or 'wcf'.")
+
+    if "wcf" in channels:
         try:
             import wcferry  # noqa: F401
         except ImportError:
-            fail("channel_type is 'wcf' but the wcferry package is not installed.\n"
+            fail("channel_type includes 'wcf' but the wcferry package is not installed.\n"
                  r"    Run: .venv\Scripts\pip install wcferry" "\n"
                  "    (wcferry is Windows-only; requirements.txt skips it elsewhere by design.)")
+
+        # Both of these start cleanly, log nothing alarming, and answer every
+        # message with silence -- the worst shape a misconfiguration can take.
         if not cfg.get("wcf_contact_white_list"):
-            fail("channel_type is 'wcf' but wcf_contact_white_list is empty, so the "
-                 "agent would answer nobody.\n"
+            fail("channel_type includes 'wcf' but wcf_contact_white_list is empty, "
+                 "so the agent would answer nobody.\n"
                  "    Add a wxid or display name (start with 'filehelper', the "
                  "File Transfer Assistant).")
-    elif channel not in ("web", "terminal"):
-        fail(f"channel_type {channel!r} is not supported. Use 'web', 'terminal', or 'wcf'.")
+        prefixes = cfg.get("single_chat_prefix", ["bot", "@bot"])
+        if prefixes and "" not in prefixes:
+            fail(f"single_chat_prefix is {prefixes!r}, so a WeChat contact would have "
+                 f"to start every message with {prefixes[0]!r} to get a reply.\n"
+                 '    Set "single_chat_prefix": [""] to answer plain messages.\n'
+                 "    (The web console prepends the prefix itself, so it is unaffected.)")
 
     print(f"    model={cfg.get('model')}  channel={channel}  port={cfg.get('web_port', 9899)}")
 

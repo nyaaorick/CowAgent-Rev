@@ -3527,6 +3527,46 @@ function isMirroredSession(sid) {
     return MIRRORED_CHANNELS.includes(_sessionChannels[sid]);
 }
 
+// A mirrored conversation happens in WeChat, so nothing in this tab drives its
+// updates: /poll drains the web channel's own reply queue, which a WeChat reply
+// never enters. Re-read the stored conversation instead, and redraw only when
+// it actually grew -- the check asks for one turn purely to read `total`.
+const MIRROR_REFRESH_MS = 4000;
+let _mirrorTotal = -1;
+let _mirrorTimer = null;
+
+function stopMirrorRefresh() {
+    if (_mirrorTimer) clearInterval(_mirrorTimer);
+    _mirrorTimer = null;
+}
+
+function startMirrorRefresh() {
+    stopMirrorRefresh();
+    if (!isMirroredSession(sessionId)) return;
+    _mirrorTimer = setInterval(() => {
+        const sid = sessionId;
+        // A hidden tab redraws nothing anyone can see; switching away from the
+        // conversation ends the job entirely.
+        if (!isMirroredSession(sid)) { stopMirrorRefresh(); return; }
+        if (document.hidden || historyLoading) return;
+        fetch(`/api/history?session_id=${encodeURIComponent(sid)}&page=1&page_size=1`)
+            .then(r => r.json())
+            .then(data => {
+                if (sid !== sessionId || data.status !== 'success') return;
+                if (typeof data.total !== 'number' || data.total === _mirrorTotal) return;
+                // Redraw from scratch: the turns arrived while the agent was
+                // answering someone in WeChat, so there is no local state to
+                // preserve and reloading keeps this identical to a fresh open.
+                messagesDiv.innerHTML = '';
+                historyPage = 0;
+                historyHasMore = false;
+                historyLoading = false;
+                loadHistory(1);
+            })
+            .catch(() => {});
+    }, MIRROR_REFRESH_MS);
+}
+
 const steerBtn = document.getElementById('steer-btn');
 const messagesDiv = document.getElementById('chat-messages');
 const fileInput = document.getElementById('file-input');
@@ -4095,6 +4135,8 @@ function updateComposerLock() {
         chatInput.disabled = locked;
         chatInput.placeholder = locked ? t('wcf_session_readonly') : t('input_placeholder');
     }
+    if (locked) startMirrorRefresh();
+    else stopMirrorRefresh();
     updateSendBtnState();
 }
 
@@ -6925,6 +6967,9 @@ function loadHistory(page) {
 
             const prevScrollHeight = messagesDiv.scrollHeight;
             const isFirstLoad = page === 1;
+            // Baseline for the mirrored-conversation refresher below: the turn
+            // count as of the last time this view was actually drawn.
+            if (isFirstLoad && typeof data.total === 'number') _mirrorTotal = data.total;
 
             // On first load, remove the welcome screen if history exists
             if (isFirstLoad) {
