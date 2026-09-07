@@ -58,11 +58,21 @@ def main() -> None:
 
         # Both of these start cleanly, log nothing alarming, and answer every
         # message with silence -- the worst shape a misconfiguration can take.
-        if not cfg.get("wcf_contact_white_list"):
-            fail("channel_type includes 'wcf' but wcf_contact_white_list is empty, "
-                 "so the agent would answer nobody.\n"
-                 "    Add a wxid or display name (start with 'filehelper', the "
-                 "File Transfer Assistant).")
+        #
+        # Count usable entries the way the channel does, not just truthiness:
+        # the channel drops non-string entries (a JSON null would otherwise
+        # become the matchable name "None"), so a list of nothing but nulls is
+        # an empty white list wearing a non-empty list's clothes.
+        raw_contacts = cfg.get("wcf_contact_white_list", [])
+        if isinstance(raw_contacts, str):
+            raw_contacts = raw_contacts.split(",")
+        contacts = [c.strip() for c in (raw_contacts or [])
+                    if isinstance(c, str) and c.strip()]
+        if not contacts:
+            fail("channel_type includes 'wcf' but wcf_contact_white_list has no "
+                 "usable entry, so the agent would answer nobody.\n"
+                 "    Add a wxid or display name as a string (start with "
+                 "'filehelper', the File Transfer Assistant).")
         prefixes = cfg.get("single_chat_prefix", ["bot", "@bot"])
         if prefixes and "" not in prefixes:
             fail(f"single_chat_prefix is {prefixes!r}, so a WeChat contact would have "

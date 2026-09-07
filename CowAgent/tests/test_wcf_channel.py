@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from bridge.context import Context, ContextType
 from bridge.reply import Reply, ReplyType
-from channel.wcf.contact_filter import ALL_CONTACT, is_allowed_contact
+from channel.wcf.contact_filter import ALL_CONTACT, is_allowed_contact, normalize_white_list
 from channel.wcf.wcf_channel import WcfChannel
 from channel.wcf.wcf_message import WcfMessage
 from config import conf
@@ -327,3 +327,16 @@ def test_a_wechat_message_is_stamped_with_its_channel(channel, white_list):
     assert produced[0]["channel_type"] == "wcf"
     # session_id is the contact, so one contact is one conversation in the list.
     assert produced[0]["session_id"] == "wxid_alice"
+
+
+def test_a_null_in_the_white_list_does_not_become_a_contact_named_None():
+    """A JSON null stringified to "None" would be matchable: a contact picks
+    their own display name, so a stranger could rename themselves to match.
+    A malformed list has to narrow the gate, never widen it."""
+    assert normalize_white_list(["filehelper", None]) == ["filehelper"]
+    assert is_allowed_contact(["", None], "wxid_stranger", "None") is False
+
+
+def test_non_string_entries_are_dropped_rather_than_coerced():
+    assert normalize_white_list([None, 0, True, {}, ["nested"]]) == []
+    assert is_allowed_contact([None, 0], "wxid_stranger", "0") is False

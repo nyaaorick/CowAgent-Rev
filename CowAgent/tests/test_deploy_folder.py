@@ -244,6 +244,22 @@ def test_an_empty_contact_list_is_refused(tmp_path):
     __import__("importlib").util.find_spec("wcferry") is None,
     reason="wcferry is Windows-only; its absence is its own check",
 )
+def test_a_contact_list_of_nothing_usable_is_refused(tmp_path):
+    """The channel drops non-string entries, so [null] is an empty white list
+    wearing a non-empty list's clothes -- truthiness alone would pass it."""
+    code, out = _check_config_with(
+        tmp_path,
+        _base_cfg(channel_type="wcf", wcf_contact_white_list=[None, "  "],
+                  single_chat_prefix=[""]),
+    )
+    assert code == 1
+    assert "answer nobody" in out
+
+
+@pytest.mark.skipif(
+    __import__("importlib").util.find_spec("wcferry") is None,
+    reason="wcferry is Windows-only; its absence is its own check",
+)
 def test_a_prefix_that_would_swallow_every_message_is_refused(tmp_path):
     """single_chat_prefix defaults to ["bot"], which drops a WeChat contact's
     plain message. The web console prepends the prefix itself and never hits

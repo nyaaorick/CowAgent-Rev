@@ -26,6 +26,12 @@ def normalize_white_list(raw) -> list:
 
     Accepts the same shapes ``channel_type`` does: a list, or a
     comma-separated string typed into the console's config editor.
+
+    Non-string entries are dropped rather than coerced. Stringifying them
+    would turn a JSON ``null`` into the entry ``"None"`` -- and since a
+    contact's display name is chosen by the contact, a stranger could then
+    match it by renaming themselves. A malformed list has to narrow this
+    gate, never widen it.
     """
     if isinstance(raw, str):
         items = raw.split(",")
@@ -33,7 +39,7 @@ def normalize_white_list(raw) -> list:
         items = list(raw)
     else:
         return []
-    return [str(item).strip() for item in items if str(item).strip()]
+    return [item.strip() for item in items if isinstance(item, str) and item.strip()]
 
 
 def is_allowed_contact(white_list, wxid, display_name="") -> bool:
