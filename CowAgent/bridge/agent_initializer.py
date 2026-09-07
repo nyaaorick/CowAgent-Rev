@@ -908,14 +908,21 @@ class AgentInitializer:
             try:
                 if not agent.memory_manager:
                     continue
+                # Whose memory this instance has been serving. Set per turn by
+                # AgentBridge; None on the console, a contact id on WeChat.
+                # Without it the day's WeChat conversations would be distilled
+                # back into the shared pile that the per-turn writes avoid.
+                owner = getattr(agent, "_current_user_id", None)
                 dream_candidates.setdefault(
-                    agent.agent_id, agent.memory_manager.flush_manager
+                    (agent.agent_id, owner), agent.memory_manager.flush_manager
                 )
                 with agent.messages_lock:
                     messages = list(agent.messages)
                 if not messages:
                     continue
-                result = agent.memory_manager.flush_manager.create_daily_summary(messages)
+                result = agent.memory_manager.flush_manager.create_daily_summary(
+                    messages, user_id=owner
+                )
                 if result:
                     flushed += 1
                     t = agent.memory_manager.flush_manager._last_flush_thread
@@ -932,13 +939,18 @@ class AgentInitializer:
             t.join(timeout=60)
 
         # Phase 2: Deep Dream — distill daily memories → MEMORY.md + dream diary
-        for agent_id, dream_candidate in dream_candidates.items():
+        # One dream per (agent, memory owner): distilling two people's days into
+        # a single MEMORY.md is exactly the leak the per-owner split prevents.
+        for (agent_id, owner), dream_candidate in dream_candidates.items():
             try:
-                result = dream_candidate.deep_dream()
+                result = dream_candidate.deep_dream(user_id=owner)
                 if result:
                     logger.info(
                         f"[DeepDream] Memory distillation completed for "
-                        f"agent={agent_id}"
+                        f"agent={agent_id} owner={owner or 'shared'}"
                     )
             except Exception as e:
-                logger.warning(f"[DeepDream] Failed for agent={agent_id}: {e}")
+                logger.warning(
+                    f"[DeepDream] Failed for agent={agent_id} "
+                    f"owner={owner or 'shared'}: {e}"
+                )

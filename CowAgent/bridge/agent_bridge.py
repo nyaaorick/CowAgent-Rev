@@ -1007,6 +1007,11 @@ class AgentBridge:
             # Create event handler for logging and channel communication
             event_handler = AgentEventHandler(context=context, original_callback=on_event)
             
+            # Whose long-term memory this turn reads and writes. None means the
+            # shared pile, which is every channel except WeChat.
+            from agent.memory.identity import memory_owner_id
+            memory_owner = memory_owner_id(context)
+
             # Filter tools based on context
             original_tools = agent.tools
             filtered_tools = original_tools
@@ -1031,6 +1036,12 @@ class AgentBridge:
                             attach_agent_delegate_to_tool(tool, self, context)
                         except Exception as e:
                             logger.warning(f"[AgentBridge] Failed to attach delegation context: {e}")
+                    elif tool.name in ("memory_search", "memory_get"):
+                        # Built once per agent, but which person's memory they
+                        # may read changes every turn. Without this the search
+                        # stays shared-only and per-person writes would be
+                        # invisible even to the person who produced them.
+                        tool.user_id = memory_owner
             
             # Pass context metadata to model for downstream API requests
             if context and hasattr(agent, 'model'):
@@ -1043,6 +1054,8 @@ class AgentBridge:
             # guest speaker still reads and writes the shared one.
             agent._current_session_id = session_id
             agent._current_agent_id = resolved_agent_id
+            # Read by the memory flush paths in agent.py / agent_stream.py.
+            agent._current_user_id = memory_owner
 
             # Bound the in-memory context for scheduler sessions before each run.
             # Scheduler sessions are stable per-task and append every trigger,
