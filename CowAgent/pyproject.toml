@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=45.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cowagent"
+version = "1.0.0"
+description = "CowAgent - AI Agent on WeChat and more"
+requires-python = ">=3.7"
+dependencies = [
+    "click>=8.0",
+    "requests>=2.28.2",
+]
+
+[project.scripts]
+cow = "cli.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["cli*"]
+
+[tool.pytest.ini_options]
+# Keep collection inside tests/. WeChatFerry is vendored upstream source and
+# ships its own (non-pytest) clients/python/test.py; docker/ and docs/ hold no
+# tests.
+testpaths = ["tests"]
+norecursedirs = ["WeChatFerry", ".git", "__pycache__", "docker", "docs", ".venv"]
+markers = [
+    "live: hits a real external API (GLM). Costs money and needs network; deselected by default.",
+]
+# Live tests are opt-in: run them with `pytest -m live`.
+addopts = "-m 'not live'"

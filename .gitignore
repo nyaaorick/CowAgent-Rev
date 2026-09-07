@@ -1,0 +1,9 @@
+# The app lives in CowAgent/ (has its own .gitignore). The repo root holds only
+# the vendored WeChatFerry/ tree, scripts/, and CI config.
+.venv/
+__pycache__/
+*.log
+.DS_Store
+.idea/
+.vscode/
+.git_backup/

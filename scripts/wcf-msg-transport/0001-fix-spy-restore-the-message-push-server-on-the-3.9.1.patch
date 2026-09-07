@@ -1,0 +1,190 @@
+From a4d756a03f8ab6be045180c32c840fac366f2d27 Mon Sep 17 00:00:00 2001
+From: CowAgent-Rev <joeysze0707@gmail.com>
+Date: Sun, 6 Sep 2026 09:12:57 -0700
+Subject: [PATCH 1/2] fix(spy): restore the message push server on the
+ 3.9.12.56 branch
+
+The 3.9.12.56 port carries a complete producer side -- both hooks in
+message_receiver.cpp build a WxMsg_t, push it onto gMsgQueue under gMutex
+and call gCV.notify_all() -- but nothing ever drains that queue, and
+msgSock is declared and closed without ever being opened or bound.
+
+The result is that tcp://0.0.0.0:(port+1) never listens, so every client
+fails with ConnectionRefused when it dials the event socket after
+enable_receiving_msg(). enable_receiving_msg() itself returns success,
+because installing the hook does succeed; the messages simply accumulate
+in a queue with no consumer. Inbound is silently dead on this branch.
+
+Add the missing consumer, modelled on master's RpcServer::
+on_message_callback: open a pair1 socket, listen on port+1, then wait on
+gCV, pop from gMsgQueue, encode the Response and push it to the client.
+
+lMsgRunning is intentionally separate from lIsRunning: lIsRunning is only
+set inside RunServer once the command socket is up, so keying the push
+loop off it would race with thread creation. The 1s wait_for timeout
+means a missed notify costs at most one second of shutdown latency.
+
+RpcStopServer now signals the thread and joins it before closing msgSock;
+previously msgSock was closed immediately, which was harmless only
+because nothing had ever opened it.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ WeChatFerry/spy/rpc_server.cpp | 98 +++++++++++++++++++++++++++++++++-
+ 1 file changed, 96 insertions(+), 2 deletions(-)
+
+diff --git a/WeChatFerry/spy/rpc_server.cpp b/WeChatFerry/spy/rpc_server.cpp
+index f9f12b5..a556f76 100644
+--- a/WeChatFerry/spy/rpc_server.cpp
++++ b/WeChatFerry/spy/rpc_server.cpp
+@@ -11,6 +11,7 @@
+ #include <string>
+ #include <thread>
+ #include <unordered_map>
++#include <vector>
+ 
+ #if __has_include(<magic_enum.hpp>)
+ #include <magic_enum.hpp>
+@@ -44,6 +45,7 @@
+ #define URL_SIZE   20
+ #define BASE_URL   "tcp://0.0.0.0"
+ #define G_BUF_SIZE (16 * 1024 * 1024)
++#define MSG_BUF_SIZE (1024 * 1024)
+ 
+ namespace fs = std::filesystem;
+ 
+@@ -60,6 +62,8 @@ static HANDLE lRpcThread = NULL;
+ static bool lIsRunning = false;
+ static nng_socket cmdSock, msgSock; // TODO: 断开检测
+ static uint8_t gBuffer[G_BUF_SIZE] = { 0 };
++static HANDLE lMsgThread           = NULL;
++static bool lMsgRunning            = false;
+ 
+ // Functions 枚举 → 处理函数映射表
+ using RpcFunctionHandler = std::function<bool(const Request &, uint8_t *, size_t *)>;
+@@ -260,6 +264,80 @@ static int RunServer()
+     return rv;
+ }
+ 
++// 消息推送服务：把 gMsgQueue 里的消息经 tcp://0.0.0.0:(port+1) 推给客户端。
++// 生产者（message_receiver.cpp 的两个 hook）已经在 gMutex 下 push 并 gCV.notify_all()，
++// 本分支一直缺的是消费端，所以 10087 从未监听、消息从未发出。
++static int RunMsgServer()
++{
++    int rv                 = 0;
++    char url[URL_SIZE + 1] = { 0 };
++    sprintf_s(url, URL_SIZE, "%s:%d", BASE_URL, lport + 1);
++
++    if ((rv = nng_pair1_open(&msgSock)) != 0) {
++        LOG_ERROR("msgSock-nng_pair1_open error: {}", nng_strerror(rv));
++        return rv;
++    }
++
++    if ((rv = nng_listen(msgSock, (char *)url, NULL, 0)) != 0) {
++        LOG_ERROR("msgSock-nng_listen error: {}", nng_strerror(rv));
++        return rv;
++    }
++
++    LOG_INFO("MSG Server listening on {}", (char *)url);
++    if ((rv = nng_setopt_ms(msgSock, NNG_OPT_SENDTIMEO, 5000)) != 0) {
++        LOG_ERROR("msgSock-nng_setopt_ms error: {}", nng_strerror(rv));
++        return rv;
++    }
++
++    std::vector<uint8_t> msgBuffer(MSG_BUF_SIZE);
++    while (lMsgRunning) {
++        WxMsg_t wxmsg;
++        {
++            std::unique_lock<std::mutex> lock(gMutex);
++            // 带超时等待，保证 lMsgRunning 被清掉时能及时退出
++            gCV.wait_for(lock, std::chrono::milliseconds(1000),
++                         []() { return !gMsgQueue.empty() || !lMsgRunning; });
++            if (!lMsgRunning) {
++                break;
++            }
++            if (gMsgQueue.empty()) {
++                continue;
++            }
++            wxmsg = std::move(gMsgQueue.front());
++            gMsgQueue.pop();
++        }
++
++        Response rsp           = Response_init_default;
++        rsp.func               = Functions_FUNC_ENABLE_RECV_TXT;
++        rsp.which_msg          = Response_wxmsg_tag;
++        rsp.msg.wxmsg.id       = wxmsg.id;
++        rsp.msg.wxmsg.is_self  = wxmsg.is_self;
++        rsp.msg.wxmsg.is_group = wxmsg.is_group;
++        rsp.msg.wxmsg.type     = wxmsg.type;
++        rsp.msg.wxmsg.ts       = wxmsg.ts;
++        rsp.msg.wxmsg.roomid   = (char *)wxmsg.roomid.c_str();
++        rsp.msg.wxmsg.content  = (char *)wxmsg.content.c_str();
++        rsp.msg.wxmsg.sender   = (char *)wxmsg.sender.c_str();
++        rsp.msg.wxmsg.sign     = (char *)wxmsg.sign.c_str();
++        rsp.msg.wxmsg.thumb    = (char *)wxmsg.thumb.c_str();
++        rsp.msg.wxmsg.extra    = (char *)wxmsg.extra.c_str();
++        rsp.msg.wxmsg.xml      = (char *)wxmsg.xml.c_str();
++
++        pb_ostream_t stream = pb_ostream_from_buffer(msgBuffer.data(), msgBuffer.size());
++        if (!pb_encode(&stream, Response_fields, &rsp)) {
++            LOG_ERROR("msgSock-Encoding failed: {}", PB_GET_ERROR(&stream));
++            continue;
++        }
++
++        if ((rv = nng_send(msgSock, msgBuffer.data(), stream.bytes_written, 0)) != 0) {
++            LOG_ERROR("msgSock-nng_send: {}", nng_strerror(rv));
++        }
++    }
++
++    LOG_DEBUG("Leave MSG Server");
++    return rv;
++}
++
+ int RpcStartServer(int port)
+ {
+     if (lIsRunning) {
+@@ -274,6 +352,14 @@ int RpcStartServer(int port)
+         return -1;
+     }
+ 
++    lMsgRunning = true;
++    lMsgThread  = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)RunMsgServer, NULL, NULL, NULL);
++    if (lMsgThread == NULL) {
++        lMsgRunning = false;
++        LOG_ERROR("Failed to create MSG thread");
++        return -1;
++    }
++
+     return 0;
+ }
+ 
+@@ -283,9 +369,10 @@ int RpcStopServer()
+         return 0;
+     }
+ 
+-    lIsRunning = false;
++    lIsRunning  = false;
++    lMsgRunning = false;
++    gCV.notify_all(); // 唤醒可能正在等消息的推送线程
+     nng_close(cmdSock);
+-    nng_close(msgSock);
+     message::stop_receiving();
+ 
+     // 等待线程退出
+@@ -295,6 +382,13 @@ int RpcStopServer()
+         lRpcThread = NULL;
+     }
+ 
++    if (lMsgThread != NULL) {
++        WaitForSingleObject(lMsgThread, 5000);
++        CloseHandle(lMsgThread);
++        lMsgThread = NULL;
++    }
++    nng_close(msgSock);
++
+     LOG_INFO("Server stopped.");
+     return 0;
+ }
+-- 
+2.55.0.windows.5
+

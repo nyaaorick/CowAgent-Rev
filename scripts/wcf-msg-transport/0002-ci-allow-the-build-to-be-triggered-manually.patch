@@ -1,0 +1,29 @@
+From bce88fb15c3a1812cf618449f15d73b556467c4e Mon Sep 17 00:00:00 2001
+From: CowAgent-Rev <joeysze0707@gmail.com>
+Date: Sun, 6 Sep 2026 09:13:46 -0700
+Subject: [PATCH 2/2] ci: allow the build to be triggered manually
+
+ci.yml only fires on pull_request against master, so a fork that just
+pushes a topic branch never builds anything. workflow_dispatch makes the
+existing build runnable on demand without opening a throwaway PR.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .github/workflows/ci.yml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index e90dd0c..09096a8 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -1,6 +1,7 @@
+ name: CI
+ 
+ on:
++  workflow_dispatch:
+   pull_request:
+     branches:
+       - master
+-- 
+2.55.0.windows.5
+

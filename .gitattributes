@@ -1,0 +1,3 @@
+# Patch files must keep LF endings or `git am` rejects them on checkout.
+*.patch -text
+*.diff -text
