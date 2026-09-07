@@ -65,7 +65,8 @@ class ContactScanner:
         name: str = "",
         remark: str = "",
         is_group: bool = False,
-        source: str = "runtime"
+        source: str = "runtime",
+        alias: str = ""
     ) -> Dict[str, Any]:
         """登记或更新联系人/群聊信息"""
         if not target_id:
@@ -80,6 +81,7 @@ class ContactScanner:
                 "id": target_id,
                 "name": name or display_name,
                 "remark": remark,
+                "alias": alias,
                 "type": "chatroom" if is_chatroom else "contact",
                 "source": source,
                 "first_seen": now,
@@ -88,10 +90,13 @@ class ContactScanner:
             logger.info(f"扫描发现新会话 [{self.catalog[target_id]['type']}]: {display_name} ({target_id})")
         else:
             item = self.catalog[target_id]
-            if name and not item.get("name"):
+            is_placeholder = not item.get("name") or item.get("name").startswith("联系人_") or item.get("name").startswith("群聊_")
+            if name and (is_placeholder or source == "manual"):
                 item["name"] = name
-            if remark and not item.get("remark"):
+            if remark:
                 item["remark"] = remark
+            if alias:
+                item["alias"] = alias
             item["last_seen"] = now
 
         self.save_cache()
@@ -245,6 +250,8 @@ class ContactScanner:
                 "wxid": target_id,
                 "name": item.get("name") or target_id,
                 "nickname": item.get("remark") or item.get("name") or target_id,
+                "remark": item.get("remark", ""),
+                "alias": item.get("alias", ""),
                 "is_group": is_group,
                 "is_whitelisted": is_whitelisted,
                 "auto_reply": auto_reply,

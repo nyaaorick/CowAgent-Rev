@@ -567,6 +567,7 @@
           ? '<span class="badge badge-blue">群聊</span>' 
           : '<span class="badge badge-wechat">好友</span>';
         const name = c.name || c.nickname || c.remark || '-';
+        const aliasTag = c.alias ? `<span style="font-size: 0.75rem; color: #38bdf8; margin-left: 6px;">(微: ${escapeHtml(c.alias)})</span>` : '';
         const isWhitelisted = c.is_whitelisted ? 'checked' : '';
         const isAutoReply = c.auto_reply ? 'checked' : '';
 
@@ -579,7 +580,13 @@
                 <button class="btn-copy" onclick="copyWxid('${escapeHtml(c.wxid)}', this)" title="复制 WXID">📋</button>
               </div>
             </td>
-            <td><span style="color: var(--text-primary); font-size: 0.85rem;">${escapeHtml(name)}</span></td>
+            <td>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="color: var(--text-primary); font-size: 0.85rem;">${escapeHtml(name)}</span>
+                ${aliasTag}
+                <button class="btn-copy" onclick="editContactName('${escapeHtml(c.wxid)}', '${escapeHtml(c.name || '')}', '${escapeHtml(c.alias || '')}')" title="修改备注/微信号">✏️</button>
+              </div>
+            </td>
             <td style="text-align: center;">
               <label class="switch">
                 <input type="checkbox" ${isWhitelisted} onchange="toggleWhitelist('${escapeHtml(c.wxid)}', ${c.is_group}, this.checked)">
@@ -606,6 +613,8 @@
       const filtered = allContacts.filter(c => 
         (c.name && c.name.toLowerCase().includes(q)) || 
         (c.nickname && c.nickname.toLowerCase().includes(q)) || 
+        (c.remark && c.remark.toLowerCase().includes(q)) || 
+        (c.alias && c.alias.toLowerCase().includes(q)) || 
         c.wxid.toLowerCase().includes(q)
       );
       renderContacts(filtered);
@@ -646,15 +655,37 @@
       }
     }
 
+    async function editContactName(targetId, currentName, currentAlias) {
+      const newName = prompt(`为 [${targetId}] 设置显示名称/备注名:`, currentName);
+      if (newName === null) return;
+      const newAlias = prompt(`为 [${targetId}] 绑定自定义微信号 (如 ahh1142521234，选填):`, currentAlias) || "";
+      try {
+        const res = await fetch('/api/contacts/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target_id: targetId, name: newName.trim(), alias: newAlias.trim() })
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+          fetchContacts();
+        } else {
+          alert('修改失败: ' + data.message);
+        }
+      } catch (e) {
+        alert('请求失败: ' + e);
+      }
+    }
+
     async function openAddContactModal() {
-      const targetId = prompt("请输入好友的微信 ID (wxid_xxx) 或群聊 ID (xxx@chatroom):");
+      const targetId = prompt("请输入好友的微信 ID (wxid_xxx) 或微信号 (alias) 或群聊 ID:");
       if (!targetId || !targetId.trim()) return;
-      const name = prompt("请输入备注名称（选填）:") || "";
+      const name = prompt("请输入备注名称（选填，如: 小泽）:") || "";
+      const alias = prompt("请输入自定义微信号（选填，如: ahh1142521234）:") || "";
       try {
         const res = await fetch('/api/contacts/add', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ target_id: targetId.trim(), name: name.trim(), auto_allow: true })
+          body: JSON.stringify({ target_id: targetId.trim(), name: name.trim(), alias: alias.trim(), auto_allow: true })
         });
         const data = await res.json();
         if (data.status === 'success') {

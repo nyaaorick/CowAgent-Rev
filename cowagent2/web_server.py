@@ -66,6 +66,7 @@ class WebServer:
         self.app.router.add_get("/api/stream", self.handle_sse_stream)
         self.app.router.add_post("/api/test_send", self.handle_test_send)
         self.app.router.add_post("/api/contacts/add", self.handle_add_contact)
+        self.app.router.add_post("/api/contacts/update", self.handle_update_contact)
         self.app.router.add_get("/api/debug_db", self.handle_debug_db)
 
         # Static assets and index
@@ -149,6 +150,8 @@ class WebServer:
             body = await request.json()
             target_id = body.get("target_id", "").strip()
             name = body.get("name", "").strip()
+            remark = body.get("remark", "").strip()
+            alias = body.get("alias", "").strip()
             is_group = bool(body.get("is_group", target_id.endswith("@chatroom")))
             auto_allow = bool(body.get("auto_allow", True))
 
@@ -158,6 +161,8 @@ class WebServer:
             item = self.scanner.register_or_update(
                 target_id=target_id,
                 name=name,
+                remark=remark,
+                alias=alias,
                 is_group=is_group,
                 source="manual",
             )
@@ -172,6 +177,31 @@ class WebServer:
             return web.json_response({"status": "success", "contact": item})
         except Exception as e:
             logger.error(f"Error manually adding contact: {e}")
+            return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+    async def handle_update_contact(self, request: web.Request) -> web.Response:
+        """Update display name, remark, or alias of an existing contact."""
+        try:
+            body = await request.json()
+            target_id = body.get("target_id", "").strip()
+            name = body.get("name", "").strip()
+            remark = body.get("remark", "").strip()
+            alias = body.get("alias", "").strip()
+
+            if not target_id:
+                return web.json_response({"status": "error", "message": "target_id is required"}, status=400)
+
+            item = self.scanner.register_or_update(
+                target_id=target_id,
+                name=name,
+                remark=remark,
+                alias=alias,
+                source="manual",
+            )
+            await self.broadcast_event("contact_updated", {"contact": item})
+            return web.json_response({"status": "success", "contact": item})
+        except Exception as e:
+            logger.error(f"Error updating contact: {e}")
             return web.json_response({"status": "error", "message": str(e)}, status=500)
 
     async def handle_scan(self, request: web.Request) -> web.Response:
@@ -235,34 +265,20 @@ class WebServer:
         if not wcf:
             return web.json_response({"error": "wcf not ready"})
         try:
-            dbs = wcf.get_dbs() or []
-            db_key = ""
-            try:
-                db_key = wcf.get_db_key()
-            except Exception as e:
-                db_key = f"error: {e}"
+            sql_param = request.query.get("sql", "").strip()
+            q = request.query.get("q", "").strip()
+            if sql_param:
+                sql = sql_param
+            elif q:
+                sql = f"SELECT StrTalker, StrContent, IsSender, CreateTime FROM MSG WHERE StrContent LIKE '%{q}%' ORDER BY CreateTime DESC LIMIT 10;"
+            else:
+                sql = "SELECT StrTalker, StrContent, IsSender, CreateTime FROM MSG WHERE StrTalker NOT LIKE '%@chatroom%' AND StrTalker != 'filehelper' ORDER BY CreateTime DESC LIMIT 25;"
 
-            msg0_tables = [t.get("name") for t in (wcf.get_tables("MSG0.db") or [])]
-            chatmsg_tables = [t.get("name") for t in (wcf.get_tables("ChatMsg.db") or [])]
-
-            sample_talker = request.query.get("talker", "wzy19890434")
-            talker_rows = []
-            try:
-                talker_rows = wcf.query_sql(
-                    "MSG0.db",
-                    f"SELECT StrTalker, StrContent, BytesExtra FROM MSG WHERE StrTalker='{sample_talker}' LIMIT 3;"
-                )
-            except Exception as e:
-                talker_rows = [{"query_error": str(e)}]
-
+            rows = wcf.query_sql("MSG0.db", sql) or []
             return web.json_response({
-                "dbs": dbs,
-                "key_length": len(db_key) if isinstance(db_key, str) else 0,
-                "has_key": bool(db_key and len(db_key) > 10),
-                "msg0_tables": msg0_tables,
-                "chatmsg_tables": chatmsg_tables,
-                "sample_talker": sample_talker,
-                "talker_rows": talker_rows,
+                "status": "success",
+                "count": len(rows),
+                "rows": rows,
             })
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)

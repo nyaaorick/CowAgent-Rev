@@ -8,3 +8,4 @@ __pycache__/
 .git_backup/
 WeChatFerry/
 cowagent2/data/contacts_cache.json
+cowagent2/data/whitelist.json
