@@ -36,15 +36,8 @@ def main() -> None:
         )
 
     channel = str(cfg.get("channel_type", "")).strip()
-    if channel == "wcf":
-        try:
-            import wcferry  # noqa: F401
-        except ImportError:
-            fail("channel_type is 'wcf' but the wcferry package is not installed.\n"
-                 "    Run: .venv\\Scripts\\pip install wcferry\n"
-                 "    (wcferry is Windows-only; requirements.txt skips it on macOS by design.)")
-    elif channel not in ("web", "terminal"):
-        fail(f"channel_type {channel!r} is not supported. Use 'web', 'terminal', or 'wcf'.")
+    if channel not in ("web", "terminal"):
+        fail(f"channel_type {channel!r} is not supported. Use 'web' or 'terminal'.")
 
     print(f"    model={cfg.get('model')}  channel={channel}  port={cfg.get('web_port', 9899)}")
 

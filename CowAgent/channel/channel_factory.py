@@ -1,7 +1,6 @@
 """
 channel factory
 """
-from common import const
 from .channel import Channel
 
 
@@ -45,9 +44,6 @@ def _build_channel(channel_type) -> Channel:
     elif channel_type == "web":
         from channel.web.web_channel import WebChannel
         ch = WebChannel()
-    elif channel_type == const.WCF:
-        from channel.wcf.wcf_channel import WcfChannel
-        ch = WcfChannel()
     else:
         raise RuntimeError(f"unsupported channel_type: {channel_type!r}")
     ch.channel_type = channel_type

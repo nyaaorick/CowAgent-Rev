@@ -1739,7 +1739,6 @@ class WebChannel(ChatChannel):
             zh_channels = [
                 ("web", "Web"),
                 ("terminal", "Terminal"),
-                ("wcf", "WeChat (WeChatFerry)"),
             ]
             en_channels = list(zh_channels)
             channels = en_channels if i18n.get_language() == "en" else zh_channels
@@ -4041,19 +4040,8 @@ class ModelsHandler:
 class ChannelsHandler:
     """API for managing external channel configurations (feishu, dingtalk, etc)."""
 
-    # Trimmed to the retained channels in Milestone 1.2b. This dict is what the
-    # console's channel panel renders, so an entry for a deleted channel would
-    # offer the operator a card that cannot connect. `wcf` needs no credential
-    # fields: WeChatFerry authenticates through the WeChat client already
-    # logged in on the host.
-    CHANNEL_DEFS = OrderedDict([
-        ("wcf", {
-            "label": {"zh": "微信 (WeChatFerry)", "en": "WeChat (WeChatFerry)"},
-            "icon": "fa-comment",
-            "color": "emerald",
-            "fields": [],
-        }),
-    ])
+    # External channel definitions.
+    CHANNEL_DEFS = OrderedDict([])
 
     # Channels that lead the list in English. Everything defined above them
     # needs a mainland-China account, so an English user scrolling past those

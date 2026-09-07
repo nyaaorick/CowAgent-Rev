@@ -48,7 +48,7 @@ def test_no_api_key_shaped_string_anywhere_in_the_folder():
 
 
 def test_the_example_config_defaults_to_a_channel_that_can_actually_start():
-    """`wcf` cannot start until Milestone 4.2; a first run must not die on it."""
+    """A first run must start on a supported channel."""
     cfg = json.load(io.open(os.path.join(DEPLOY, "config.example.json"), encoding="utf-8"))
     assert cfg["channel_type"] in ("web", "terminal")
 
@@ -69,12 +69,9 @@ def test_run_cmd_sets_utf8_before_anything_prints():
     assert "chcp 65001" in cmd
 
 
-def test_run_cmd_checks_the_vendored_wechatferry():
-    """WeChatFerry is vendored, not a submodule: run.cmd must verify it is
-    present and say so clearly, never tell the operator to init a submodule."""
+def test_run_cmd_does_not_mention_submodules():
     cmd = _read("run.cmd")
-    assert "WeChatFerry" in cmd
-    assert "git submodule" not in cmd, "WeChatFerry is vendored; submodule advice is wrong"
+    assert "git submodule" not in cmd
 
 
 def test_the_real_config_is_git_ignored():

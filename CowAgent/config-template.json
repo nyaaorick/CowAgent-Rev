@@ -1,9 +1,6 @@
 {
   "cow_lang": "auto",
-  "channel_type": "wcf",
-  "wcf_host": "127.0.0.1",
-  "wcf_port": 10086,
-  "wcf_debug": false,
+  "channel_type": "web",
   "model": "glm-4-flash",
   "zhipu_ai_api_key": "",
   "zhipu_ai_api_base": "https://open.bigmodel.cn/api/paas/v4",

@@ -40,9 +40,7 @@ CHANNEL_ACTIONS = {"channel_create", "channel_update", "channel_delete"}
 # channelType -> config key mapping for app credentials.
 # secret_key may be "" for single-token channels (e.g. telegram/discord).
 # For slack, appId carries bot_token and appSecret carries app_token.
-# Empty since Milestone 1.2: every channel this mapped was removed. The wcf
-# channel (Milestone 4.2) authenticates through the locally logged-in WeChat
-# client, so it has no config-file credentials to map either.
+# Empty since Milestone 1.2: every external channel previously mapped was removed.
 CREDENTIAL_MAP = {}
 
 

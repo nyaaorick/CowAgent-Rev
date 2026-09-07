@@ -220,7 +220,7 @@ class ChatChannel(Channel):
             elif context.type == ContextType.VOICE:  # 语音消息
                 # Speech-to-text was removed with the voice/ vendor SDKs in
                 # Milestone 1.3. The message is still received and its media
-                # still downloaded (WCF, Milestone 4.3) -- we simply have no
+                # still downloaded -- we simply have no
                 # engine to transcribe it, so say so rather than failing opaquely.
                 cmsg = context["msg"]
                 cmsg.prepare()

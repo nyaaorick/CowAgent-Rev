@@ -10,9 +10,7 @@ Two steps on a fresh Windows machine.
 git clone https://github.com/nyaaorick/CowAgent-Rev.git
 ```
 
-That is the whole thing. **WeChatFerry is vendored inside this repository**, so
-one clone — or one `git pull` — gets both halves. No `--recursive`, no submodule
-init. A GitHub ZIP download works too.
+That is the whole thing. One clone — or one `git pull` — gets everything. A GitHub ZIP download works too.
 
 ### 2. Double-click `run.cmd`
 
@@ -29,43 +27,18 @@ Then open <http://127.0.0.1:9899>.
 | Step | Action |
 |---|---|
 | 1 | Finds Python 3.13 → 3.10 via the `py` launcher, else `python` on PATH |
-| 2 | Notes that the WeChatFerry runtime installs as the `wcferry` wheel |
+| 2 | Verifies dependencies and environment |
 | 3 | Creates `.venv` and installs `requirements.txt` (first run only) |
 | 4 | Creates `config.json` from the template; refuses to start without an API key |
 | 5 | Starts `app.py` with `PYTHONUTF8=1` so Chinese text is not mangled |
 
 Re-running is cheap: steps 3–4 are skipped once satisfied.
 
-## Switching to WeChat
+## Channels
 
-`config.example.json` ships with `"channel_type": "web"` so the first run always
-works. To drive a real WeChat account, edit `config.json` (at the repo root):
+`config.example.json` ships with `"channel_type": "web"` to launch the web console interface at `http://127.0.0.1:9899`.
+You can also set `"channel_type": "terminal"` for direct terminal CLI interaction.
 
-```json
-{
-  "channel_type": "wcf",
-  "wcf_host": "127.0.0.1",
-  "wcf_port": 10086,
-  "wcf_debug": false,
-  "single_chat_prefix": [""],
-  "group_name_white_list": ["ALL_GROUP"]
-}
-```
-
-- `single_chat_prefix: [""]` — otherwise the bot only answers private messages
-  that start with `bot` / `@bot` (the upstream default).
-- `group_name_white_list` — the bot ignores every group not listed; `"ALL_GROUP"`
-  enables all of them. In a group it still only replies when `@`-mentioned.
-
-It also requires:
-
-- **WeChat `3.9.12.x`** — `wcferry` 39.6 does not attach to WeChat 4.x. Install
-  the matching build, log in on this machine, and disable auto-update.
-- `wcferry` in `.venv` — the Windows-only wheel; `requirements.txt` installs it
-  automatically on Windows.
-
-The adapter (`channel/wcf/`) is implemented for **text messages**; images, voice,
-files and friend-requests are Milestone 4.3 in [`ROADMAP.md`](../ROADMAP.md).
 
 ## Remote debugging from another machine (optional)
 
