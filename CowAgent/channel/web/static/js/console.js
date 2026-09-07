@@ -3515,6 +3515,18 @@ startPolling();
 
 const chatInput = document.getElementById('chat-input');
 const sendBtn = document.getElementById('send-btn');
+
+// Conversations the console can display but not continue, keyed by session id.
+// Sending into one from here would answer in the browser while the contact
+// waits in WeChat, so the composer locks instead. Declared alongside the
+// composer's own elements because updateSendBtnState() consults them.
+const MIRRORED_CHANNELS = ['wcf'];
+let _sessionChannels = {};
+
+function isMirroredSession(sid) {
+    return MIRRORED_CHANNELS.includes(_sessionChannels[sid]);
+}
+
 const steerBtn = document.getElementById('steer-btn');
 const messagesDiv = document.getElementById('chat-messages');
 const fileInput = document.getElementById('file-input');
@@ -7670,16 +7682,6 @@ function deleteProject(path, name) {
                 .catch(() => _wsToast(t('session_settings_failed')));
         }
     );
-}
-
-// Conversations the console can display but not continue, keyed by session id.
-// Sending into one from here would answer in the browser while the contact
-// waits in WeChat, so the composer locks instead.
-const MIRRORED_CHANNELS = ['wcf'];
-let _sessionChannels = {};
-
-function isMirroredSession(sid) {
-    return MIRRORED_CHANNELS.includes(_sessionChannels[sid]);
 }
 
 function _sessionItemEl(s, indent) {
