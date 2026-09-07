@@ -111,9 +111,6 @@ _MUTATING_TOOLS = frozenset({"evolution_undo"})
 
 # Tools where only some sub-actions mutate: (argument name, mutating values).
 _ACTION_TOOLS: Dict[str, Tuple[str, frozenset]] = {
-    # Clicking, typing, pressing keys and running scripts act on the page;
-    # navigating and reading it does not.
-    "browser": ("action", frozenset({"click", "fill", "select", "press", "evaluate"})),
     "scheduler": ("action", frozenset({"create", "delete", "enable", "disable"})),
     "env_config": ("action", frozenset({"set", "delete"})),
 }
@@ -123,7 +120,7 @@ _ACTION_TOOLS: Dict[str, Tuple[str, frozenset]] = {
 _KNOWN_TOOLS = frozenset({
     "read", "ls", "search_files", "memory_search", "memory_get", "web_search",
     "web_fetch", "vision", "send", "subagent", "bash", "write", "edit",
-    "browser", "scheduler", "env_config", "evolution_undo",
+    "scheduler", "env_config", "evolution_undo",
 })
 
 # MCP tools arrive with names we have never seen. Rather than guess "safe", read

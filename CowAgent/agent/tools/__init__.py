@@ -95,20 +95,6 @@ FileSave = _optional_tools.get('FileSave')
 Terminal = _optional_tools.get('Terminal')
 
 
-# BrowserTool: playwright is soft-imported inside browser_service, so this
-# import always succeeds even without playwright. Readiness (playwright pkg /
-# system Chrome / downloaded Chromium) is checked at call time in BrowserTool.
-def _import_browser_tool():
-    from common.log import logger
-    try:
-        from agent.tools.browser.browser_tool import BrowserTool
-        return BrowserTool
-    except Exception as e:
-        logger.error(f"[Tools] BrowserTool failed to load: {e}")
-        return None
-
-BrowserTool = _import_browser_tool()
-
 # MCP Tools (no extra dependencies, loaded on demand)
 def _import_mcp_tools():
     """导入 MCP 工具模块（无额外依赖，按需加载）"""
@@ -146,7 +132,6 @@ __all__ = [
     'WebSearch',
     'WebFetch',
     'Vision',
-    'BrowserTool',
     'McpTool',
 ]
 

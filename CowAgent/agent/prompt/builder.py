@@ -229,7 +229,6 @@ def _build_tooling_section(tools: List[Any], language: str) -> List[str]:
             "terminal": "manage background processes",
             "web_search": "web search",
             "web_fetch": "fetch URL content",
-            "browser": "control the browser (screenshot key results or send to the user when help is needed)",
             "memory_search": "search memory",
             "memory_get": "read memory content",
             "env_config": "manage API keys and skill config",
@@ -249,7 +248,6 @@ def _build_tooling_section(tools: List[Any], language: str) -> List[str]:
             "terminal": "管理后台进程",
             "web_search": "网络搜索",
             "web_fetch": "获取URL内容",
-            "browser": "控制浏览器（关键结果或需要协助可截图发送给用户）",
             "memory_search": "搜索记忆",
             "memory_get": "读取记忆内容",
             "env_config": "管理API密钥和技能配置",
@@ -263,7 +261,7 @@ def _build_tooling_section(tools: List[Any], language: str) -> List[str]:
     tool_order = [
         "read", "write", "edit", "ls", "search_files",
         "bash", "terminal",
-        "web_search", "web_fetch", "browser",
+        "web_search", "web_fetch",
         "memory_search", "memory_get",
         "env_config", "scheduler", "send", "vision", "subagent",
     ]

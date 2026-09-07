@@ -5,7 +5,6 @@ from cli import __version__
 from cli.commands.skill import skill
 from cli.commands.process import start, stop, restart, self_restart, update, status, logs
 from cli.commands.context import context
-from cli.commands.install import install_browser
 from cli.commands.knowledge import knowledge
 from cli.commands.backup import backup_command, restore_command
 
@@ -27,7 +26,6 @@ Commands:
   knowledge  Manage knowledge base.
   backup   Back up config and agent workspace.
   restore  Restore a CowAgent backup.
-  install-browser  Install browser tool (Playwright + Chromium).
 
 Tip: Memory index management lives in chat — send /memory status or
 /memory rebuild-index to the running agent."""
@@ -79,7 +77,6 @@ main.add_command(context)
 main.add_command(knowledge)
 main.add_command(backup_command)
 main.add_command(restore_command)
-main.add_command(install_browser)
 
 
 if __name__ == '__main__':

@@ -856,7 +856,7 @@ class WebChannel(ChatChannel):
             if request_id in self.sse_streams:
                 content = reply.content if reply.content is not None else ""
 
-                # Intermediate status lines (e.g. /install-browser phases) must NOT use "done",
+                # Intermediate status lines must NOT use "done",
                 # or the frontend closes EventSource and drops subsequent events.
                 if getattr(reply, "sse_phase", False):
                     self._publish_sse_event(request_id, {
