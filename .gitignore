@@ -6,3 +6,16 @@ __pycache__/
 .idea/
 .vscode/
 .git_backup/
+# WeChatFerry build artifacts
+WeChatFerry/**/Debug/
+WeChatFerry/**/Release/
+WeChatFerry/**/x64/
+WeChatFerry/**/Out/
+WeChatFerry/**/_build/
+WeChatFerry/**/build/
+WeChatFerry/**/logs/
+WeChatFerry/**/vcpkg_installed/
+WeChatFerry/**/target/
+
+cowagent2/data/contacts_cache.json
+cowagent2/data/whitelist.json

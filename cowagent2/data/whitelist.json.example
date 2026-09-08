@@ -1,0 +1,10 @@
+﻿{
+  " enabled\: true,
+ \allowed_wxids\: [
+ \filehelper\
+ ],
+ \allowed_rooms\: [],
+ \auto_reply_sessions\: [
+ \filehelper\
+ ]
+}

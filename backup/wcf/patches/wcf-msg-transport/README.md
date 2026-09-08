@@ -1,4 +1,8 @@
-# WeChatFerry message-transport patch
+# [DEPRECATED / 过期无效] WeChatFerry message-transport patch
+
+> [!CAUTION]
+> **【已过期 / 无效文档 - 请勿参考】**
+> 本补丁及说明已于 2026-09-07 标记为过期无效归档。请勿参考或使用。
 
 Two commits that restore inbound message delivery on WeChatFerry's
 `3.9.12.56` branch (upstream PR

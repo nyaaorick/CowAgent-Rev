@@ -140,9 +140,14 @@
                     </button>
                     <div class="menu-group-items pl-2">
                         <a class="sidebar-item active flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-all duration-150 hover:bg-white/5 hover:text-neutral-200 text-[14px]"
-                           data-view="chat">
-                            <i class="fas fa-message item-icon text-xs w-5 text-center"></i>
-                            <span data-i18n="menu_chat">对话</span>
+                           data-view="contacts">
+                            <i class="fas fa-user item-icon text-xs w-5 text-center"></i>
+                            <span data-i18n="menu_contacts">联系人</span>
+                        </a>
+                        <a class="sidebar-item flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-all duration-150 hover:bg-white/5 hover:text-neutral-200 text-[14px]"
+                           data-view="groups">
+                            <i class="fas fa-user-group item-icon text-xs w-5 text-center"></i>
+                            <span data-i18n="menu_groups">群聊</span>
                         </a>
                     </div>
                 </div>
@@ -241,7 +246,20 @@
                 </button>
                 <div id="new-chat-menu" class="new-chat-menu hidden"></div>
             </div>
+            <!-- Address book, shown in the Contacts / Groups views in place of
+                 the history list. Same panel, same width, same resizer. -->
+            <div id="contact-toolbar" class="contact-toolbar" hidden>
+                <button id="contact-scan-btn" class="session-panel-new" onclick="ctScan()">
+                    <i class="fas fa-rotate"></i>
+                    <span id="contact-scan-label" data-i18n="contacts_scan">扫描通讯录</span>
+                </button>
+                <input id="contact-search" type="search" class="contact-search"
+                       autocomplete="off" oninput="ctOnSearch(this.value)"
+                       data-i18n-placeholder="contacts_search" placeholder="搜备注 / 昵称 / 微信号">
+                <div id="contact-hint" class="contact-hint" hidden></div>
+            </div>
             <div id="session-list" class="session-list"></div>
+            <div id="contact-list" class="session-list" hidden></div>
         </aside>
 
         <!-- Multi-agent new-chat modal: pick who joins, then start -->
@@ -292,6 +310,24 @@
                         onclick="toggleWorkspacePanel()" data-tooltip="工作空间" data-tooltip-pos="bottom">
                     <i class="fas fa-folder-tree text-slate-500 dark:text-slate-400"></i>
                 </button>
+
+                <!-- Per-conversation switches. Shown only in the Contacts /
+                     Groups views, and only once a real WeChat session is
+                     selected: the debug sandbox has nothing to gate. -->
+                <div id="contact-switches" class="contact-switches" hidden>
+                    <label class="contact-switch" data-tip-key="sw_allowed_tip">
+                        <input type="checkbox" id="sw-allowed" onchange="ctToggle('allowed', this.checked)">
+                        <span id="sw-allowed-label" data-i18n="sw_allowed">白名单</span>
+                    </label>
+                    <label class="contact-switch" id="sw-auto-answer-wrap" data-tip-key="sw_auto_answer_tip">
+                        <input type="checkbox" id="sw-auto-answer" onchange="ctToggle('auto_answer', this.checked)">
+                        <span data-i18n="sw_auto_answer">全权代答</span>
+                    </label>
+                    <label class="contact-switch" id="sw-at-free-wrap" data-tip-key="sw_at_free_tip" hidden>
+                        <input type="checkbox" id="sw-at-free" onchange="ctToggle('at_free', this.checked)">
+                        <span data-i18n="sw_at_free">免 @ 模式</span>
+                    </label>
+                </div>
 
                 <!-- Breadcrumb (hidden on mobile) -->
                 <div class="hidden lg:flex items-center gap-2 text-sm min-w-0">
@@ -802,6 +838,10 @@
                                             class="config-tab px-4 py-1.5 rounded-md text-xs font-medium cursor-pointer transition-colors duration-150">
                                         <i class="fas fa-microchip mr-1.5"></i><span data-i18n="settings_tab_models">模型配置</span>
                                     </button>
+                                    <button id="config-tab-json" onclick="switchConfigTab('json')"
+                                            class="config-tab px-4 py-1.5 rounded-md text-xs font-medium cursor-pointer transition-colors duration-150">
+                                        <i class="fas fa-code mr-1.5"></i><span data-i18n="settings_tab_json">JSON配置</span>
+                                    </button>
                                 </div>
                             </div>
 
@@ -987,6 +1027,54 @@
                                                             after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
                                             </label>
                                         </div>
+                                        <div class="flex items-center justify-between">
+                                            <label class="flex items-center gap-1.5 text-sm font-medium text-slate-600 dark:text-slate-400">
+                                                <span data-i18n="config_deep_dream">Deep Dream</span>
+                                                <span class="cfg-tip" data-tip-key="config_deep_dream_hint"><i class="fas fa-circle-question"></i></span>
+                                            </label>
+                                            <label class="relative inline-flex items-center cursor-pointer">
+                                                <input id="cfg-deep-dream" type="checkbox" class="sr-only peer">
+                                                <div class="w-9 h-5 bg-slate-200 dark:bg-slate-700 peer-checked:bg-primary-400 rounded-full
+                                                            after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white
+                                                            after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+                                            </label>
+                                        </div>
+                                        <div class="flex items-center justify-between">
+                                            <label class="flex items-center gap-1.5 text-sm font-medium text-slate-600 dark:text-slate-400">
+                                                <span data-i18n="config_embedding">Vector Embedding</span>
+                                                <span class="cfg-tip" data-tip-key="config_embedding_hint"><i class="fas fa-circle-question"></i></span>
+                                            </label>
+                                            <label class="relative inline-flex items-center cursor-pointer">
+                                                <input id="cfg-embedding" type="checkbox" class="sr-only peer">
+                                                <div class="w-9 h-5 bg-slate-200 dark:bg-slate-700 peer-checked:bg-primary-400 rounded-full
+                                                            after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white
+                                                            after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+                                            </label>
+                                        </div>
+                                        <div class="flex items-center justify-between">
+                                            <label class="flex items-center gap-1.5 text-sm font-medium text-slate-600 dark:text-slate-400">
+                                                <span data-i18n="config_memory_search">Memory Search</span>
+                                                <span class="cfg-tip" data-tip-key="config_memory_search_hint"><i class="fas fa-circle-question"></i></span>
+                                            </label>
+                                            <label class="relative inline-flex items-center cursor-pointer">
+                                                <input id="cfg-memory-search" type="checkbox" class="sr-only peer">
+                                                <div class="w-9 h-5 bg-slate-200 dark:bg-slate-700 peer-checked:bg-primary-400 rounded-full
+                                                            after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white
+                                                            after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+                                            </label>
+                                        </div>
+                                        <div class="flex items-center justify-between">
+                                            <label class="flex items-center gap-1.5 text-sm font-medium text-slate-600 dark:text-slate-400">
+                                                <span data-i18n="config_tool_call">工具调用</span>
+                                                <span class="cfg-tip" data-tip-key="config_tool_call_hint"><i class="fas fa-circle-question"></i></span>
+                                            </label>
+                                            <label class="relative inline-flex items-center cursor-pointer">
+                                                <input id="cfg-tool-call" type="checkbox" class="sr-only peer">
+                                                <div class="w-9 h-5 bg-slate-200 dark:bg-slate-700 peer-checked:bg-primary-400 rounded-full
+                                                            after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white
+                                                            after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+                                            </label>
+                                        </div>
                                         <div class="flex items-center justify-end gap-3 pt-1">
                                             <span id="cfg-agent-status" class="text-xs text-primary-500 opacity-0 transition-opacity duration-300"></span>
                                             <button id="cfg-agent-save"
@@ -1101,6 +1189,92 @@
                                     <i class="fas fa-spinner fa-spin text-xs"></i><span>Loading...</span>
                                 </div>
                                 <div id="models-content" class="grid gap-6 hidden"></div>
+                            </div>
+
+                            <!-- Panel: JSON配置 (direct JSON preview and editor) -->
+                            <div id="config-panel-json" class="hidden">
+                                <div class="bg-white dark:bg-[#1A1A1A] rounded-xl border border-slate-200 dark:border-white/10 p-5 space-y-4">
+                                    <!-- Toolbar -->
+                                    <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-white/5">
+                                        <!-- Left: File Selector & Path -->
+                                        <div class="flex items-center gap-3">
+                                            <div class="flex items-center gap-2">
+                                                <label class="text-xs font-semibold text-slate-500 dark:text-slate-400" data-i18n="config_json_file">配置文件:</label>
+                                                <select id="config-json-file-select" onchange="onJsonConfigFileChange()"
+                                                        class="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-white/5 text-slate-700 dark:text-slate-200 focus:outline-none focus:border-primary-500 cursor-pointer">
+                                                    <option value="config.json">config.json (系统核心配置)</option>
+                                                    <option value="prompts.json">prompts.json (全局提示词库)</option>
+                                                </select>
+                                            </div>
+                                            <span id="config-json-filepath" class="hidden sm:inline-block text-[11px] font-mono text-slate-400 dark:text-slate-500 max-w-xs truncate"></span>
+                                        </div>
+
+                                        <!-- Right: Status badge & Action buttons -->
+                                        <div class="flex items-center gap-2">
+                                            <!-- Syntax status badge -->
+                                            <div id="config-json-status" class="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400 font-medium transition-colors">
+                                                <i id="config-json-status-icon" class="fas fa-check-circle text-[11px]"></i>
+                                                <span id="config-json-status-text" data-i18n="config_json_valid">JSON 格式正确</span>
+                                            </div>
+
+                                            <!-- Prettify / Format button -->
+                                            <button type="button" onclick="formatJsonConfig()"
+                                                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-white/10 text-xs font-medium text-slate-600 dark:text-slate-300 cursor-pointer transition-colors"
+                                                    data-i18n-title="config_json_format_hint" title="格式化 JSON (2空格缩进)">
+                                                <i class="fas fa-magic text-[11px]"></i>
+                                                <span data-i18n="config_json_format">格式化</span>
+                                            </button>
+
+                                            <!-- Reload button -->
+                                            <button type="button" onclick="reloadJsonConfig()"
+                                                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-white/10 text-xs font-medium text-slate-600 dark:text-slate-300 cursor-pointer transition-colors"
+                                                    data-i18n-title="config_json_reload_hint" title="重新从磁盘读取配置">
+                                                <i class="fas fa-rotate text-[11px]"></i>
+                                                <span data-i18n="config_json_reload">重新加载</span>
+                                            </button>
+
+                                            <!-- Save button -->
+                                            <button id="config-json-btn-save" type="button" onclick="saveJsonConfig()"
+                                                    class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-primary-500 hover:bg-primary-600 text-white text-xs font-medium cursor-pointer transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                                                <i class="fas fa-floppy-disk text-[11px]"></i>
+                                                <span data-i18n="config_json_save">保存配置</span>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Syntax error alert (hidden by default) -->
+                                    <div id="config-json-error-alert" class="hidden flex items-start gap-2 p-2.5 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-xs font-mono">
+                                        <i class="fas fa-circle-exclamation mt-0.5 flex-shrink-0"></i>
+                                        <span id="config-json-error-msg" class="break-all"></span>
+                                    </div>
+
+                                    <!-- Editor Container -->
+                                    <div class="relative rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-900 shadow-inner">
+                                        <div class="flex items-center justify-between px-3 py-1.5 bg-slate-950/60 border-b border-slate-800 text-[11px] text-slate-400 font-mono select-none">
+                                            <span id="config-json-editor-tab" class="flex items-center gap-1.5 text-slate-300">
+                                                <i class="fas fa-code text-[10px] text-primary-400"></i>
+                                                <span id="config-json-current-filename">config.json</span>
+                                            </span>
+                                            <div class="flex items-center gap-3">
+                                                <span id="config-json-modified-indicator" class="hidden text-amber-400 font-sans">• 未保存修改</span>
+                                                <span id="config-json-filesize" class="text-slate-400">0 KB</span>
+                                                <span class="text-slate-600 dark:text-slate-600">|</span>
+                                                <span>UTF-8</span>
+                                                <span>JSON</span>
+                                            </div>
+                                        </div>
+                                        <textarea id="config-json-editor"
+                                                  spellcheck="false"
+                                                  class="w-full h-[580px] p-4 font-mono text-xs sm:text-sm leading-relaxed bg-slate-900 text-slate-100 dark:bg-[#121212] dark:text-slate-200 border-0 focus:outline-none resize-y selection:bg-primary-500/30 font-medium"
+                                                  placeholder="Loading JSON configuration..."></textarea>
+                                    </div>
+
+                                    <!-- Bottom Tip / Notice -->
+                                    <div class="flex items-start gap-2 text-xs text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-white/[0.02] p-3 rounded-lg border border-slate-100 dark:border-white/5">
+                                        <i class="fas fa-circle-info text-primary-500 mt-0.5 flex-shrink-0"></i>
+                                        <span data-i18n="config_json_tip">提示：直接编辑底层 JSON 配置文件。保存 config.json 会热更新系统配置并重置模型桥接；保存 prompts.json 会热更新全局提示词库。快捷键：Ctrl+S 保存，Tab 缩进。</span>
+                                    </div>
+                                </div>
                             </div>
 
                         </div>
@@ -1977,5 +2151,6 @@
     <script defer src="assets/js/doc-editor.js"></script>
     <script defer src="assets/js/console.js"></script>
     <script defer src="assets/js/workspace.js"></script>
+    <script defer src="assets/js/contacts.js"></script>
 </body>
 </html>

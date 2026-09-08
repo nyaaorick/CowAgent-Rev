@@ -1,6 +1,11 @@
 {
   "cow_lang": "auto",
   "channel_type": "web",
+  "wcf_host": "127.0.0.1",
+  "wcf_port": 10086,
+  "wcf_debug": false,
+  "wcf_contact_white_list": ["filehelper"],
+  "single_chat_prefix": [""],
   "model": "glm-4-flash",
   "zhipu_ai_api_key": "",
   "zhipu_ai_api_base": "https://open.bigmodel.cn/api/paas/v4",
@@ -28,5 +33,8 @@
   "reasoning_effort": "high",
   "knowledge": true,
   "self_evolution_enabled": true,
-  "mcp_tool_retrieval_enabled": false
+  "deep_dream_enabled": false,
+  "embedding_enabled": false,
+  "memory_search_enabled": false,
+  "tool_call_enabled": false
 }

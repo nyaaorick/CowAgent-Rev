@@ -33,6 +33,7 @@ from agent.evolution.prompts import (
     EVOLUTION_SYSTEM_PROMPT,
     SILENT_TOKEN,
     build_review_user_message,
+    get_evolution_system_prompt,
 )
 from agent.evolution.record import append_session_evolution
 
@@ -524,7 +525,7 @@ def run_evolution_for_session(
         # gets the full context (tools, workspace, user preferences, memory, time)
         # AND its evolution-specific instructions on top, instead of one
         # overwriting the other.
-        review_agent.extra_system_suffix = EVOLUTION_SYSTEM_PROMPT
+        review_agent.extra_system_suffix = get_evolution_system_prompt()
 
         logger.info(
             f"[Evolution] backup {backup_id} ({_backup_n} files) → running review agent"

@@ -153,6 +153,21 @@ function toggleWorkspacePanel() {
         return;
     }
     wsAutoOpenSuppressed = false;
+
+    // In the Contacts / Groups views the button is about the selected contact,
+    // not about the workspace at large: it opens that contact's own profile so
+    // the operator can read and edit what the agent is told about them. The
+    // panel, its preview and its editor are otherwise untouched.
+    if (typeof ctProfilePath === 'function') {
+        ctProfilePath().then(path => {
+            if (path) {
+                openInPreview(path);
+            } else {
+                openWorkspacePanel(wsCurrentFile ? 'preview' : 'files');
+            }
+        });
+        return;
+    }
     openWorkspacePanel(wsCurrentFile ? 'preview' : 'files');
 }
 
@@ -840,7 +855,7 @@ function wsWorkspaceHref(href) {
 async function openWorkspaceLink(path) {
     // The panel lives in the chat view, so a link clicked from elsewhere (the
     // knowledge reader, a memory file) would otherwise open out of sight.
-    if (typeof navigateTo === 'function' && currentView !== 'chat') navigateTo('chat');
+    if (typeof navigateTo === 'function' && !isChatPaneView(currentView)) navigateTo('chat');
 
     try {
         const data = await wsApi(`/api/workspace/resolve?path=${encodeURIComponent(path)}`);

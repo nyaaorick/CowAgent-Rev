@@ -19,7 +19,7 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 from common.log import logger
 
@@ -137,6 +137,31 @@ ALTER TABLE messages ADD COLUMN run_id TEXT NOT NULL DEFAULT '';
 
 DEFAULT_MAX_AGE_DAYS: int = 30
 
+# One channel ("web") or several (["web", "wcf"]).
+ChannelFilter = Union[str, Iterable[str]]
+
+
+def _channel_where(channel_type: Optional[ChannelFilter]) -> Tuple[str, tuple]:
+    """SQL suffix + bind params restricting a sessions query to some channels.
+
+    Returns ``("", ())`` for no filter, so callers append it unconditionally.
+    A filter that names only blank channels is treated as no filter rather than
+    as "match the empty string", which would silently return nothing.
+    """
+    if not channel_type:
+        return "", ()
+    if isinstance(channel_type, str):
+        names = [channel_type]
+    else:
+        names = [str(name) for name in channel_type]
+    names = [name.strip() for name in names if name and name.strip()]
+    if not names:
+        return "", ()
+    if len(names) == 1:
+        return " WHERE channel_type = ?", (names[0],)
+    placeholders = ", ".join("?" for _ in names)
+    return f" WHERE channel_type IN ({placeholders})", tuple(names)
+
 
 def _is_visible_user_message(content: Any) -> bool:
     """
@@ -248,6 +273,118 @@ def _extract_tool_results(content: Any) -> Dict[str, dict]:
     return results
 
 
+def _has_tool_calls(content: Any) -> bool:
+    if isinstance(content, list):
+        return any(
+            isinstance(b, dict) and b.get("type") == "tool_use"
+            for b in content
+        )
+    return False
+
+
+def _chunk_assistant_items(items: List[tuple]) -> List[List[tuple]]:
+    chunks: List[List[tuple]] = []
+    current_chunk: List[tuple] = []
+    for item in items:
+        role = item[0]
+        content = item[1]
+        if role == "assistant":
+            has_completed_asst = any(
+                r == "assistant" and not _has_tool_calls(c)
+                for r, c, *_ in current_chunk
+            )
+            if has_completed_asst:
+                chunks.append(current_chunk)
+                current_chunk = []
+        current_chunk.append(item)
+    if current_chunk:
+        chunks.append(current_chunk)
+    return chunks
+
+
+def _build_assistant_turn(
+    chunk: List[tuple],
+    fallback_ts: int = 0,
+    include_thinking: bool = True,
+) -> Optional[Dict[str, Any]]:
+    steps: List[Dict[str, Any]] = []
+    tool_results: Dict[str, str] = {}
+    final_text = ""
+    final_ts: Optional[int] = None
+    final_seq: Optional[int] = None
+    merged_extras: Dict[str, Any] = {}
+
+    for role, content, created_at, extras, seq in chunk:
+        if role == "assistant" and isinstance(extras, dict):
+            merged_extras.update(extras)
+        if role == "user":
+            tool_results.update(_extract_tool_results(content))
+        elif role == "assistant":
+            if isinstance(content, list):
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+                    btype = block.get("type")
+                    if btype == "thinking":
+                        if not include_thinking:
+                            continue
+                        txt = block.get("thinking", "").strip()
+                        if txt:
+                            steps.append({"type": "thinking", "content": txt})
+                    elif btype == "text":
+                        txt = block.get("text", "").strip()
+                        if txt:
+                            steps.append({"type": "content", "content": txt})
+                            final_text = txt
+                    elif btype == "tool_use":
+                        steps.append({
+                            "type": "tool",
+                            "id": block.get("id", ""),
+                            "name": block.get("name", ""),
+                            "arguments": block.get("input", {}),
+                        })
+            elif isinstance(content, str) and content.strip():
+                steps.append({"type": "content", "content": content.strip()})
+                final_text = content.strip()
+            final_ts = created_at
+            if seq is not None:
+                final_seq = seq
+
+    for step in steps:
+        if step["type"] == "tool":
+            tr = tool_results.get(step.get("id", ""), {})
+            if not isinstance(tr, dict):
+                tr = {"result": tr}
+            step["result"] = tr.get("result", "")
+            step["is_error"] = tr.get("is_error", False)
+
+    is_evolution = _is_evolution_text(final_text)
+    final_text = _clean_display_text(final_text)
+    for step in steps:
+        if step.get("type") == "content":
+            step["content"] = _clean_display_text(step.get("content", ""))
+
+    if not steps and not final_text:
+        return None
+
+    tool_calls = [s for s in steps if s.get("type") == "tool"]
+
+    turn: Dict[str, Any] = {
+        "role": "assistant",
+        "content": final_text,
+        "steps": steps,
+        "tool_calls": tool_calls,
+        "created_at": final_ts or fallback_ts,
+    }
+    if is_evolution:
+        turn["kind"] = "evolution"
+    if merged_extras:
+        turn["extras"] = merged_extras
+    if final_seq is not None:
+        turn["_seq"] = final_seq
+    return turn
+
+
 def _group_into_display_turns(
     rows: List[tuple],
     include_thinking: bool = True,
@@ -267,9 +404,8 @@ def _group_into_display_turns(
     - A visible user message starts a new group.
     - tool_result user messages are internal; their content is attached to the
       matching tool_use entry via tool_use_id and they never become own turns.
-    - All assistant messages within a group are merged:
-        * tool_use blocks → tool_calls list (result filled from tool_results)
-        * text blocks → last non-empty text becomes the display content
+    - All assistant messages within a group are merged into turns based on completed
+      tool-call chains. Leading and consecutive assistant messages are preserved.
     """
     # ------------------------------------------------------------------ #
     # Pass 1: split rows into groups, each starting with a visible user msg
@@ -301,6 +437,8 @@ def _group_into_display_turns(
         if role == "user" and _is_visible_user_message(content):
             if started:
                 groups.append((cur_user, cur_rest))
+            elif cur_rest:
+                groups.append((None, cur_rest))
             cur_user = (content, created_at, extras, seq)
             cur_rest = []
             started = True
@@ -309,6 +447,8 @@ def _group_into_display_turns(
 
     if started:
         groups.append((cur_user, cur_rest))
+    elif cur_rest:
+        groups.append((None, cur_rest))
 
     # ------------------------------------------------------------------ #
     # Pass 2: build display turns from each group
@@ -329,87 +469,16 @@ def _group_into_display_turns(
                     turn["_seq"] = user_seq
                 turns.append(turn)
 
-        # Build an ordered list of steps preserving the original sequence:
-        #   thinking → content → tool_call → content → ...
-        steps: List[Dict[str, Any]] = []
-        tool_results: Dict[str, str] = {}
-        final_text = ""
-        final_ts: Optional[int] = None
-        final_seq: Optional[int] = None
-        merged_extras: Dict[str, Any] = {}
-
-        for role, content, created_at, extras, seq in rest:
-            if role == "assistant" and isinstance(extras, dict):
-                merged_extras.update(extras)
-            if role == "user":
-                tool_results.update(_extract_tool_results(content))
-            elif role == "assistant":
-                # Walk content blocks in order to preserve interleaving
-                if isinstance(content, list):
-                    for block in content:
-                        if not isinstance(block, dict):
-                            continue
-                        btype = block.get("type")
-                        if btype == "thinking":
-                            if not include_thinking:
-                                continue
-                            txt = block.get("thinking", "").strip()
-                            if txt:
-                                steps.append({"type": "thinking", "content": txt})
-                        elif btype == "text":
-                            txt = block.get("text", "").strip()
-                            if txt:
-                                steps.append({"type": "content", "content": txt})
-                                final_text = txt
-                        elif btype == "tool_use":
-                            steps.append({
-                                "type": "tool",
-                                "id": block.get("id", ""),
-                                "name": block.get("name", ""),
-                                "arguments": block.get("input", {}),
-                            })
-                elif isinstance(content, str) and content.strip():
-                    steps.append({"type": "content", "content": content.strip()})
-                    final_text = content.strip()
-                final_ts = created_at
-                if seq is not None:
-                    final_seq = seq
-
-        # Attach tool results to tool steps
-        for step in steps:
-            if step["type"] == "tool":
-                tr = tool_results.get(step.get("id", ""), {})
-                if not isinstance(tr, dict):
-                    tr = {"result": tr}
-                step["result"] = tr.get("result", "")
-                step["is_error"] = tr.get("is_error", False)
-
-        # Detect a self-evolution bubble BEFORE cleaning the marker away, so the
-        # UI can flag it even though the visible text stays clean.
-        is_evolution = _is_evolution_text(final_text)
-
-        # Clean internal markers from the user-facing assistant text. Applies to
-        # both the final content and the mirrored content step so the rendered
-        # bubble shows clean text while the stored message keeps the markers.
-        final_text = _clean_display_text(final_text)
-        for step in steps:
-            if step.get("type") == "content":
-                step["content"] = _clean_display_text(step.get("content", ""))
-
-        if steps or final_text:
-            turn = {
-                "role": "assistant",
-                "content": final_text,
-                "steps": steps,
-                "created_at": final_ts or (user_row[1] if user_row else 0),
-            }
-            if is_evolution:
-                turn["kind"] = "evolution"
-            if merged_extras:
-                turn["extras"] = merged_extras
-            if final_seq is not None:
-                turn["_seq"] = final_seq
-            turns.append(turn)
+        # Assistant turn(s)
+        chunks = _chunk_assistant_items(rest)
+        for chunk in chunks:
+            asst_turn = _build_assistant_turn(
+                chunk,
+                fallback_ts=user_row[1] if user_row else 0,
+                include_thinking=include_thinking,
+            )
+            if asst_turn:
+                turns.append(asst_turn)
 
     return turns
 
@@ -704,6 +773,25 @@ class ConversationStore:
                     (session_id,),
                 ).fetchone()
                 return row[0] if row else 0
+            finally:
+                conn.close()
+
+    def get_channel_type(self, session_id: str) -> str:
+        """Which channel a session belongs to ("" when it does not exist yet).
+
+        Answers "may the console write into this conversation?" -- a chat the
+        agent is holding on WeChat is displayed there but continued from
+        WeChat. New sessions legitimately return "" and must stay writable, so
+        callers treat the empty string as "not restricted", never as a match.
+        """
+        with self._lock:
+            conn = self._connect()
+            try:
+                row = conn.execute(
+                    "SELECT channel_type FROM sessions WHERE session_id = ?",
+                    (session_id,),
+                ).fetchone()
+                return (row[0] or "") if row else ""
             finally:
                 conn.close()
 
@@ -1410,13 +1498,18 @@ class ConversationStore:
 
     def list_sessions(
         self,
-        channel_type: Optional[str] = None,
+        channel_type: Optional[ChannelFilter] = None,
         page: int = 1,
         page_size: int = 50,
     ) -> Dict[str, Any]:
         """
         List sessions with pinned ones first, then last_active DESC, with an
-        optional channel_type filter.
+        optional channel filter.
+
+        ``channel_type`` takes one channel ("web") or several
+        (``["web", "wcf"]``) -- the console lists conversations from every
+        channel it can display, not just its own, so a WeChat chat the agent
+        held shows up beside the ones typed into the console.
 
         Pinned sessions sort ahead of everything else rather than only ahead of
         the rows on the same page, so a pin still reaches the top of the list
@@ -1425,7 +1518,7 @@ class ConversationStore:
         Returns:
             {
                 "sessions": [{session_id, title, created_at, last_active,
-                              msg_count, pinned}, ...],
+                              msg_count, pinned, channel}, ...],
                 "total": int,
                 "page": int,
                 "page_size": int,
@@ -1433,37 +1526,23 @@ class ConversationStore:
             }
         """
         page = max(1, page)
+        where, params = _channel_where(channel_type)
         with self._lock:
             conn = self._connect()
             try:
-                if channel_type:
-                    total = conn.execute(
-                        "SELECT COUNT(*) FROM sessions WHERE channel_type = ?",
-                        (channel_type,),
-                    ).fetchone()[0]
-                    rows = conn.execute(
-                        """
-                        SELECT session_id, title, created_at, last_active, msg_count, pinned
-                        FROM sessions
-                        WHERE channel_type = ?
-                        ORDER BY pinned DESC, last_active DESC
-                        LIMIT ? OFFSET ?
-                        """,
-                        (channel_type, page_size, (page - 1) * page_size),
-                    ).fetchall()
-                else:
-                    total = conn.execute(
-                        "SELECT COUNT(*) FROM sessions",
-                    ).fetchone()[0]
-                    rows = conn.execute(
-                        """
-                        SELECT session_id, title, created_at, last_active, msg_count, pinned
-                        FROM sessions
-                        ORDER BY pinned DESC, last_active DESC
-                        LIMIT ? OFFSET ?
-                        """,
-                        (page_size, (page - 1) * page_size),
-                    ).fetchall()
+                total = conn.execute(
+                    f"SELECT COUNT(*) FROM sessions{where}", params
+                ).fetchone()[0]
+                rows = conn.execute(
+                    f"""
+                    SELECT session_id, title, created_at, last_active, msg_count,
+                           pinned, channel_type
+                    FROM sessions{where}
+                    ORDER BY pinned DESC, last_active DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    (*params, page_size, (page - 1) * page_size),
+                ).fetchall()
             finally:
                 conn.close()
 
@@ -1475,6 +1554,7 @@ class ConversationStore:
                 "last_active": r[3],
                 "msg_count": r[4],
                 "pinned": bool(r[5]),
+                "channel": r[6] or "",
             }
             for r in rows
         ]
@@ -1514,22 +1594,21 @@ class ConversationStore:
             finally:
                 conn.close()
 
-    def list_session_ids(self, channel_type: Optional[str] = None) -> List[str]:
-        """Every session id, optionally filtered by channel.
+    def list_session_ids(
+        self, channel_type: Optional[ChannelFilter] = None
+    ) -> List[str]:
+        """Every session id, optionally filtered by one or several channels.
 
         One cheap single-column scan, used to work out how many distinct project
         spaces are actually in play without paging through full session rows.
         """
+        where, params = _channel_where(channel_type)
         with self._lock:
             conn = self._connect()
             try:
-                if channel_type:
-                    rows = conn.execute(
-                        "SELECT session_id FROM sessions WHERE channel_type = ?",
-                        (channel_type,),
-                    ).fetchall()
-                else:
-                    rows = conn.execute("SELECT session_id FROM sessions").fetchall()
+                rows = conn.execute(
+                    f"SELECT session_id FROM sessions{where}", params
+                ).fetchall()
             finally:
                 conn.close()
         return [r[0] for r in rows]

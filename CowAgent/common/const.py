@@ -214,6 +214,7 @@ MODEL_LIST = [
 DEFAULT_MODEL = DEEPSEEK_V4_FLASH
 
 # channel
+WCF = "wcf"  # WeChatFerry channel (WeChat 3.9.12.56 hook, local nng RPC)
 FEISHU = "feishu"
 DINGTALK = "dingtalk"
 WECOM_BOT = "wecom_bot"

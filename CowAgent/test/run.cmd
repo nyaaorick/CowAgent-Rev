@@ -38,8 +38,12 @@ if not defined PY (
 for /f "tokens=2" %%v in ('%PY% --version 2^>^&1') do set "PYVER=%%v"
 echo [1/5] Python %PYVER%  ^(%PY%^)
 
-REM ----------------------------------------------------------- Dependencies
-echo [2/5] Checking environment and dependencies
+REM ----------------------------------------------------------- WeChatFerry
+REM The WeChatFerry runtime is the `wcferry` PyPI wheel (Windows-only,
+REM bundles spy.dll / wcf.exe); it is installed into .venv from
+REM requirements.txt below. The vendored WeChatFerry\ tree is C++ source
+REM only and is not needed to run -- so nothing to check here.
+echo [2/5] WeChatFerry runtime installs with the dependencies
 
 REM ----------------------------------------------------------------- venv
 if not exist "%VENV%\Scripts\python.exe" (

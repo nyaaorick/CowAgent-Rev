@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from common.log import logger
 from config import conf
+from agent.prompt.manager import get_prompt
 
 
 @dataclass
@@ -150,22 +151,6 @@ def build_agent_system_prompt(
         )
     )
 
-    # 4.5 Permissions. Right after the workspace, because what the model may
-    # change only means something once it knows where it is working. Emits
-    # nothing in full-access mode, leaving the prompt as it has always been.
-    if permission_mode:
-        try:
-            from agent.permission import describe_mode
-
-            sections.extend(
-                describe_mode(
-                    permission_mode,
-                    language,
-                    cwd=project_dir or workspace_dir,
-                )
-            )
-        except Exception as e:
-            logger.debug(f"Permission prompt section skipped: {e}")
 
     # 5. User identity (if present)
     if user_identity:
@@ -190,22 +175,33 @@ def _build_response_language_section(language: str) -> List[str]:
     """Response-language rule, appended regardless of the prompt skeleton language.
 
     Keeps the agent's reply language aligned with the user's input by default,
-    so a Chinese-built prompt still answers an English user in English.
+    so a Chinese-built prompt still answers an English user in English, and Chinese
+    input always gets natural Chinese replies without English greeting artifacts.
     """
+    cfg = get_prompt("system_prompt.response_language", lang=language)
+    if cfg and isinstance(cfg, dict) and "header" in cfg and "rules" in cfg:
+        return [
+            cfg["header"],
+            "",
+            *cfg["rules"],
+            "",
+        ]
     if language == "en":
         return [
             "## 🌐 Response language",
             "",
-            "By default, reply in the same language as the user's input, "
-            "unless the user explicitly asks for another language.",
+            "1. By default, strictly reply in the same language as the user's input (when the user writes in Chinese, always reply in fluent, natural Chinese), unless the user explicitly asks for another language.",
+            "2. Never reply with generic English greeting templates (like 'Hello! If you have any questions...') when the user is communicating in Chinese.",
             "",
         ]
     return [
         "## 🌐 回复语言",
         "",
-        "默认使用与用户输入相同的语言回复，除非用户明确要求使用其他语言。",
+        "1. 严格使用与用户输入相同的语言回复（用户使用中文交流时，必须全程使用自然、贴合上下文的中文回复，除非用户明确要求使用其他语言）。",
+        "2. 严禁在中文对话中回复通用的英文问候模板（如 'Hello! If you have any questions...' 等），必须结合用户的具体内容进行有温度、有帮助的回应。",
         "",
     ]
+
 
 
 def _build_identity_section(base_persona: Optional[str], language: str) -> List[str]:
@@ -229,7 +225,6 @@ def _build_tooling_section(tools: List[Any], language: str) -> List[str]:
             "terminal": "manage background processes",
             "web_search": "web search",
             "web_fetch": "fetch URL content",
-            "browser": "control the browser (screenshot key results or send to the user when help is needed)",
             "memory_search": "search memory",
             "memory_get": "read memory content",
             "env_config": "manage API keys and skill config",
@@ -249,7 +244,6 @@ def _build_tooling_section(tools: List[Any], language: str) -> List[str]:
             "terminal": "管理后台进程",
             "web_search": "网络搜索",
             "web_fetch": "获取URL内容",
-            "browser": "控制浏览器（关键结果或需要协助可截图发送给用户）",
             "memory_search": "搜索记忆",
             "memory_get": "读取记忆内容",
             "env_config": "管理API密钥和技能配置",
@@ -263,7 +257,7 @@ def _build_tooling_section(tools: List[Any], language: str) -> List[str]:
     tool_order = [
         "read", "write", "edit", "ls", "search_files",
         "bash", "terminal",
-        "web_search", "web_fetch", "browser",
+        "web_search", "web_fetch",
         "memory_search", "memory_get",
         "env_config", "scheduler", "send", "vision", "subagent",
     ]
@@ -291,6 +285,28 @@ def _build_tooling_section(tools: List[Any], language: str) -> List[str]:
         tool.name if hasattr(tool, "name") else str(tool) for tool in tools
     }
 
+    cfg = get_prompt("system_prompt.tooling", lang=language)
+    if cfg and isinstance(cfg, dict):
+        header = cfg.get("header", "## 🔧 Tooling" if is_en else "## 🔧 工具系统")
+        available_prefix = cfg.get("available_prefix", "Available tools (names are case-sensitive, call exactly as listed):" if is_en else "可用工具（名称大小写敏感，严格按列表调用）:")
+        style_prefix = cfg.get("style_prefix", "Tool-calling style:" if is_en else "工具调用风格：")
+        guidelines = cfg.get("guidelines", [])
+        subagent_guideline = cfg.get("subagent_guideline", "")
+        lines = [
+            header,
+            "",
+            available_prefix,
+            "\n".join(tool_lines),
+            "",
+            style_prefix,
+            "",
+            *guidelines,
+            "",
+        ]
+        if has_subagent and subagent_guideline:
+            lines.insert(-1, subagent_guideline)
+        return lines
+
     if is_en:
         lines = [
             "## 🔧 Tooling",
@@ -304,6 +320,7 @@ def _build_tooling_section(tools: List[Any], language: str) -> List[str]:
             "- Keep going until the task is done, then report the result to the user",
             "- Always redact secrets, tokens and other sensitive info in replies",
             "- Put URLs directly in the reply text; the system handles and renders them. Don't download and re-send them via the send tool",
+            "- Only call tools when the user's message clearly requires external action or data. NEVER call tools (especially web_search) for greetings, conversational chit-chat, single punctuation marks (e.g. '?', '？', '!'), or inputs without a specific task. For casual or ambiguous inputs, reply directly with friendly conversational text.",
             "",
         ]
         if has_subagent:
@@ -327,6 +344,7 @@ def _build_tooling_section(tools: List[Any], language: str) -> List[str]:
             "- 持续推进直到任务完成，完成后向用户报告结果",
             "- 回复中涉及密钥、令牌等敏感信息必须脱敏",
             "- URL链接直接放在回复文本中即可，系统会自动处理和渲染。无需下载后使用send工具发送",
+            "- 仅在用户消息明确需要外部操作或检索数据时才调用工具。对于日常问候、随意见聊、单纯的标点符号（如 '?'、'？'、'！'）或无明确任务意图的简短输入，严禁调用工具（尤其是 web_search），直接以自然语言友好回复即可。",
             "",
         ]
         if has_subagent:
@@ -352,7 +370,14 @@ def _build_skills_section(skill_manager: Any, tools: Optional[List[Any]], langua
                 read_tool_name = tool_name
                 break
     
-    if language == "en":
+    cfg = get_prompt("system_prompt.skills", lang=language, read_tool_name=read_tool_name)
+    if cfg and isinstance(cfg, dict):
+        lines = [
+            cfg.get("header", "## 🧩 Skills (mandatory)" if language == "en" else "## 🧩 技能系统（mandatory）"),
+            "",
+            *cfg.get("instructions", []),
+        ]
+    elif language == "en":
         lines = [
             "## 🧩 Skills (mandatory)",
             "",
@@ -450,6 +475,40 @@ def _build_memory_section(
 
     from datetime import datetime
     today_file = datetime.now().strftime("%Y-%m-%d") + ".md"
+
+    cfg = get_prompt(
+        "system_prompt.memory",
+        lang=language,
+        mem_md=mem_md,
+        mem_dir=mem_dir,
+        kb_dir=kb_dir,
+        today_file=today_file,
+    )
+    if cfg and isinstance(cfg, dict):
+        return [
+            cfg.get("header", "## 🧠 Memory" if language == "en" else "## 🧠 记忆系统"),
+            "",
+            cfg.get("recall_header", "### Memory Recall (mandatory)" if language == "en" else "### Memory Recall（mandatory）"),
+            "",
+            cfg.get("recall_intro", ""),
+            "",
+            *cfg.get("recall_rules", []),
+            "",
+            cfg.get("files_header", "**Memory file structure**:"),
+            *cfg.get("file_items", []),
+            "",
+            cfg.get("writing_header", "### Writing memory" if language == "en" else "### 写入记忆"),
+            "",
+            cfg.get("writing_intro", ""),
+            "",
+            *cfg.get("writing_triggers", []),
+            "",
+            cfg.get("storage_header", "**Storage rules**:" if language == "en" else "**存储规则**:"),
+            *cfg.get("storage_rules", []),
+            "",
+            cfg.get("principle", ""),
+            "",
+        ]
 
     if language == "en":
         lines = [
@@ -555,6 +614,41 @@ def _build_knowledge_section(
 
     # Anchor knowledge paths to ~/cow when a project cwd is active.
     kb = f"{_state_path_prefix(workspace_dir, project_dir)}knowledge"
+
+    cfg = get_prompt(
+        "system_prompt.knowledge",
+        lang=language,
+        kb=kb,
+    )
+    if cfg and isinstance(cfg, dict):
+        lines = [
+            cfg.get("header", "## 📚 Knowledge" if language == "en" else "## 📚 知识系统"),
+            "",
+            cfg.get("intro", ""),
+            "",
+            cfg.get("auto_write_header", "### Auto-write rules (mandatory)" if language == "en" else "### 自动写入规则（mandatory）"),
+            "",
+            cfg.get("auto_write_intro", ""),
+            "",
+            *cfg.get("auto_write_scenarios", []),
+            "",
+            cfg.get("sync_rule", ""),
+            "",
+            cfg.get("warning", ""),
+            "",
+        ]
+        if index_content:
+            lines.extend([
+                cfg.get("current_index_header", "### Current knowledge index" if language == "en" else "### 当前知识索引"),
+                "",
+                index_content,
+                "",
+            ])
+        lines.extend([
+            cfg.get("query_guide", "**How to query**: use `read` to open a knowledge page, or `memory_search` (knowledge is in the vector index)." if language == "en" else "**查询方式**：用 `read` 读取知识页面，或用 `memory_search` 检索（知识已纳入向量索引）。"),
+            "",
+        ])
+        return lines
 
     if language == "en":
         lines = [
@@ -677,6 +771,36 @@ def _build_workspace_section(
             workspace_dir, normalized_project, language, context_files_loaded
         )
 
+    cfg = get_prompt("system_prompt.workspace", lang=language, workspace_dir=workspace_dir)
+    if cfg and isinstance(cfg, dict):
+        lines = [
+            cfg.get("header", "## 📂 Workspace" if language == "en" else "## 📂 工作空间"),
+            "",
+            cfg.get("working_dir", f"Your working directory is: `{workspace_dir}`"),
+            "",
+            cfg.get("rules_header", "**Path rules** (very important):"),
+            "",
+            *cfg.get("rules", []),
+            "",
+        ]
+        if context_files_loaded:
+            lines += [
+                cfg.get("auto_loaded_header", "**Important - files already auto-loaded**:" if language == "en" else "**重要说明 - 文件已自动加载**:"),
+                "",
+                cfg.get("auto_loaded_desc", ""),
+                "",
+                *cfg.get("auto_loaded_items", []),
+                "",
+                cfg.get("communication_header", "**💬 Communication norms**:" if language == "en" else "**💬 交流规范**:"),
+                "",
+                *cfg.get("communication_norms", []),
+                "",
+            ]
+        cloud_website_lines = _build_cloud_website_section(workspace_dir)
+        if cloud_website_lines:
+            lines.extend(cloud_website_lines)
+        return lines
+
     if language == "en":
         lines = [
             "## 📂 Workspace",
@@ -709,7 +833,7 @@ def _build_workspace_section(
                 "- ✅ `AGENT.md`: loaded - your persona and soul; follow it strictly. When your name, personality or style changes, proactively `edit` this file",
                 "- ✅ `USER.md`: loaded - the user's identity info. When the user changes how they're addressed, their name, etc., `edit` this file",
                 "- ✅ `RULE.md`: loaded - workspace guide and rules; follow them strictly",
-                "- ✅ `MEMORY.md`: loaded - long-term memory index",
+                "- ✅ `MEMORY.md`: loaded - long-term memory index (and per-contact PROFILE.md / MEMORY.md if configured)",
                 "",
                 "**💬 Communication norms**:",
                 "",
@@ -752,7 +876,7 @@ def _build_workspace_section(
                 "- ✅ `AGENT.md`: 已加载 - 你的人格和灵魂设定，请严格遵循。当你的名字、性格或交流风格发生变化时，主动用 `edit` 更新此文件",
                 "- ✅ `USER.md`: 已加载 - 用户的身份信息。当用户修改称呼、姓名等身份信息时，用 `edit` 更新此文件",
                 "- ✅ `RULE.md`: 已加载 - 工作空间使用指南和规则，请严格遵循",
-                "- ✅ `MEMORY.md`: 已加载 - 长期记忆索引",
+                "- ✅ `MEMORY.md`: 已加载 - 长期记忆索引（若本会话配置了好友专属 PROFILE.md / MEMORY.md 亦已自动注入）",
                 "",
                 "**💬 交流规范**:",
                 "",
@@ -783,6 +907,36 @@ def _build_project_workspace_section(
     - System directory (``workspace_dir``, e.g. ``~/cow``): memory and skills
       live here and are reached with absolute paths, never relative ones.
     """
+    cfg = get_prompt(
+        "system_prompt.project_workspace",
+        lang=language,
+        project_dir=project_dir,
+        workspace_dir=workspace_dir,
+    )
+    if cfg and isinstance(cfg, dict):
+        lines = [
+            cfg.get("header", "## 📂 Workspace" if language == "en" else "## 📂 工作空间"),
+            "",
+            cfg.get("intro", ""),
+            "",
+            cfg.get("project_dir_line", f"- **Project directory (current working dir)**: `{project_dir}`"),
+            cfg.get("system_dir_line", f"- **System directory (memory & skills)**: `{workspace_dir}`"),
+            "",
+            cfg.get("rules_header", "**Path rules** (very important):"),
+            "",
+            *cfg.get("rules", []),
+            "",
+        ]
+        if context_files_loaded and cfg.get("auto_loaded"):
+            lines += [
+                cfg.get("auto_loaded"),
+                "",
+            ]
+        cloud_website_lines = _build_cloud_website_section(workspace_dir)
+        if cloud_website_lines:
+            lines.extend(cloud_website_lines)
+        return lines
+
     if language == "en":
         lines = [
             "## 📂 Workspace",
@@ -869,20 +1023,24 @@ def _build_context_files_section(context_files: List[ContextFile], language: str
     )
     
     is_en = language == "en"
-    if is_en:
-        lines = [
-            "# 📋 Project context",
-            "",
-            "The following project context files have been loaded:",
-            "",
-        ]
-    else:
-        lines = [
-            "# 📋 项目上下文",
-            "",
-            "以下项目上下文文件已被加载：",
-            "",
-        ]
+    cfg = get_prompt("system_prompt.context_files", lang=language)
+    header = cfg.get("header") if isinstance(cfg, dict) else ("# 📋 Project context" if is_en else "# 📋 项目上下文")
+    intro = cfg.get("intro") if isinstance(cfg, dict) else ("The following project context files have been loaded:" if is_en else "以下项目上下文文件已被加载：")
+    lines = [
+        header,
+        "",
+        intro,
+        "",
+    ]
+
+    has_contact_profile = any(
+        f.path.lower().endswith('profile.md')
+        for f in context_files
+    )
+    has_contact_memory = any(
+        'users/' in f.path.lower() and f.path.lower().endswith('memory.md')
+        for f in context_files
+    )
 
     if has_agent:
         if is_en:
@@ -891,6 +1049,20 @@ def _build_context_files_section(context_files: List[ContextFile], language: str
         else:
             lines.append("**`AGENT.md` 是你的灵魂文件** 🪞：严格遵循其中定义的人格、语气和设定，做真实的自己，避免僵硬、模板化的回复。")
             lines.append("当用户通过对话透露了对你性格、风格、职责、能力边界的新期望，你应该主动用 `edit` 更新 AGENT.md 以反映这些演变。")
+        lines.append("")
+
+    if has_contact_profile:
+        if is_en:
+            lines.append("**`PROFILE.md` is this contact's private profile & response policy**: strictly observe these custom instructions when chatting with this contact.")
+        else:
+            lines.append("**`PROFILE.md` 是当前好友的专属档案与特定回复策略**：在与该好友对话时优先遵循其中的定制要求。")
+        lines.append("")
+
+    if has_contact_memory:
+        if is_en:
+            lines.append("**`memory/users/.../MEMORY.md` is this contact's private memory notes**: strictly confidential to this conversation, never leak to other contacts.")
+        else:
+            lines.append("**`memory/users/.../MEMORY.md` 是当前好友的历史专属备忘**：仅供本会话参考，绝不跨好友泄露。")
         lines.append("")
     
     # Append the content of each file
@@ -941,6 +1113,23 @@ def _build_team_section(runtime_info: Dict[str, Any], language: str) -> List[str
     own_name = runtime_info.get("agent_name") or own_id
     whoami = f"{own_name}(@{own_id})" if own_id else own_name
 
+    cfg = get_prompt("system_prompt.team", lang=language, whoami=whoami)
+    if cfg and isinstance(cfg, dict):
+        return [
+            cfg.get("header", "## 👥 Team conversation" if language == "en" else "## 👥 团队会话"),
+            "",
+            cfg.get("whoami_intro", f"You are {whoami}. Also in this conversation:" if language == "en" else f"你是 {whoami}。同在这个会话里的还有："),
+            "",
+            *[f"- {line}" for line in roster],
+            "",
+            cfg.get("history_rule", ""),
+            "",
+            cfg.get("turn_rule", ""),
+            "",
+            cfg.get("delegate_rule", ""),
+            "",
+        ]
+
     if language == "en":
         return [
             "## 👥 Team conversation",
@@ -985,9 +1174,11 @@ def _build_runtime_section(runtime_info: Dict[str, Any], language: str) -> List[
         return []
     
     is_en = language == "en"
-    time_label = "Current time" if is_en else "当前时间"
+    cfg = get_prompt("system_prompt.runtime", lang=language)
+    header = (cfg.get("header") if isinstance(cfg, dict) else None) or ("## ⚙️ Runtime info" if is_en else "## ⚙️ 运行时信息")
+    time_label = (cfg.get("time_label") if isinstance(cfg, dict) else None) or ("Current time" if is_en else "当前时间")
     lines = [
-        ("## ⚙️ Runtime info" if is_en else "## ⚙️ 运行时信息"),
+        header,
         "",
     ]
 

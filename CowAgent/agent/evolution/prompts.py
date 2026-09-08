@@ -136,6 +136,15 @@ them. When their signal is clear, act; do not be shy here.
 """
 
 
+def get_evolution_system_prompt() -> str:
+    """Return the evolution system prompt, loading dynamically from PromptManager if available."""
+    try:
+        from agent.prompt.manager import get_prompt
+        return get_prompt("evolution.system_prompt", fallback=EVOLUTION_SYSTEM_PROMPT)
+    except Exception:
+        return EVOLUTION_SYSTEM_PROMPT
+
+
 def build_review_user_message(transcript: str, protected_skills: list = None) -> str:
     """Wrap the conversation transcript as the review agent's user message.
 

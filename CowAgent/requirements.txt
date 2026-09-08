@@ -18,6 +18,26 @@ regex>=2019.3.12
 # zhipuai (>=0.2.3 required for GLM-5.3 reasoning_effort support)
 zai-sdk>=0.2.3
 
+# WeChatFerry: the wcf channel's transport. Windows-only -- it ships a native
+# wheel and injects spy.dll into WeChat.exe. The marker keeps
+# `pip install -r requirements.txt` working anywhere else, where the wcf channel
+# is never started.
+#
+# Pinned to the build that matches THIS host's WeChat (3.9.12.56).
+#   39.5.2.0 targets WeChat 3.9.12.51 and *access-violates* on 3.9.12.56.
+#   39.6.0.0 targets 3.9.12.56 and is the only published build that does.
+# 39.6.0.0 has no git tag or GitHub release because it comes from the
+# maintainer's still-open PR #429 ("WeChat 3.9.12.56 Support", 55 commits),
+# not from master -- unusual provenance, but legitimate and verified.
+#
+# CAVEAT: the *wheel's* bundled spy.dll was uploaded before that branch's CI
+# ever built successfully. Its DB layer half-works: injection, login and
+# send_text succeed, but AccountStorageMgr/MicroMsg.db lookups fail and the
+# event port never binds, so inbound messages never arrive. The DLLs in .venv
+# are replaced with the ones from the branch's successful CI build -- see
+# ROADMAP WCF-BUG-01 and backup/wcf/patches/.
+wcferry==39.6.0.0; sys_platform == "win32"
+
 # web.py: PyPI 0.62 fails to build on Python 3.13+ (cgi module removed), use GitHub fix instead
 web.py; python_version < "3.13"
 web.py @ git+https://github.com/webpy/webpy.git ; python_version >= "3.13"

@@ -19,7 +19,7 @@ _channel_mgr = None
 
 # Desktop mode: a lighter runtime for the packaged Electron client. Plugins are
 # loaded in a background thread (so command plugins like cow_cli/godcmd work
-# without slowing startup), while MCP warmup is still skipped to keep it fast.
+# without slowing startup) to keep it fast.
 DESKTOP_MODE = os.environ.get("COW_DESKTOP") == "1"
 
 
@@ -459,36 +459,6 @@ def sigterm_handler_wrap(_signo):
     signal.signal(_signo, func)
 
 
-def _warmup_mcp_tools():
-    """
-    Kick off MCP server loading at process startup so subprocesses
-    (npx / uvx etc.) finish initializing before the first user message
-    arrives. Returns immediately — the actual work happens on a daemon
-    thread inside ToolManager. Safe to call when MCP is not configured.
-
-    Warms every enabled Agent: this runs before any routing has happened, so
-    without the loop only the default Agent's servers would be ready and the
-    rest would boot on their first message instead.
-    """
-    try:
-        from agent.registry import get_agent_registry
-        from agent.tools import ToolManager
-        from common.runtime_identity import identity_scope
-
-        profiles = get_agent_registry().list(include_disabled=False)
-    except Exception as e:
-        logger.warning(f"[App] MCP warmup failed (non-fatal): {e}")
-        return
-
-    for profile in profiles:
-        # Per Agent, so one broken mcp.json does not stop the others warming.
-        try:
-            with identity_scope(agent_id=profile.id):
-                ToolManager()._load_mcp_tools()
-        except Exception as e:
-            logger.warning(f"[App] MCP warmup failed for '{profile.id}' (non-fatal): {e}")
-
-
 def _preload_heavy_imports():
     """Resolve the scheduler's import graph on the main thread.
 
@@ -728,11 +698,6 @@ def run():
         _sync_builtin_skills()
         _scaffold_subagent_assets()
 
-        # Kick off MCP server loading in the background so first-message
-        # latency isn't dominated by npx package downloads. Skipped in desktop
-        # mode (MCP relies on external npx/uvx runtimes that aren't bundled).
-        if not DESKTOP_MODE:
-            _warmup_mcp_tools()
 
         if DESKTOP_MODE:
             # Defer the (heavy) AgentBridge/scheduler warmup to a background

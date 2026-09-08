@@ -38,9 +38,9 @@ def _build_channel(channel_type) -> Channel:
     :param channel_type: channel type code
     :return: channel instance
     """
-    if channel_type == "terminal":
-        from channel.terminal.terminal_channel import TerminalChannel
-        ch = TerminalChannel()
+    if channel_type == "wcf":
+        from channel.wcf.wcf_channel import WcfChannel
+        ch = WcfChannel()
     elif channel_type == "web":
         from channel.web.web_channel import WebChannel
         ch = WebChannel()

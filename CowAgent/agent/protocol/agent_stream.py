@@ -1082,67 +1082,12 @@ class AgentStreamExecutor:
 
         A tool behind a setting is left out while that setting is off, and
         picked up again on the turn after it is switched back on.
-
-        Built-in tools are ALWAYS injected in full (skills and core flows hard
-        depend on them). MCP tools are also injected in full UNLESS on-demand
-        retrieval is enabled AND the MCP tool count exceeds the configured
-        threshold — then only the most relevant MCP tools are injected, unioned
-        with those already selected earlier in this run (only-grows, so a tool
-        that already produced a tool_use never vanishes from the schema).
-
-        Degrades safely: disabled feature, no embedding provider, embedding
-        failure, count below threshold, or any error → inject all tools. Tools
-        are never silently dropped.
         """
-        all_tools = [tool for tool in self.tools.values() if is_tool_available(tool)]
-        try:
-            from config import conf
-            if not conf().get("mcp_tool_retrieval_enabled", False):
-                return all_tools
+        from config import conf
+        if not conf().get("tool_call_enabled", False):
+            return []
+        return [tool for tool in self.tools.values() if is_tool_available(tool)]
 
-            from agent.tools.mcp.mcp_tool import McpTool
-            mcp_tools = [t for t in all_tools if isinstance(t, McpTool)]
-            builtin_tools = [t for t in all_tools if not isinstance(t, McpTool)]
-
-            threshold = int(conf().get("mcp_tool_retrieval_threshold", 20) or 20)
-            if len(mcp_tools) <= threshold:
-                return all_tools
-
-            top_k = int(conf().get("mcp_tool_retrieval_top_k", 10) or 10)
-
-            from agent.tools import ToolManager
-            from agent.tools.mcp.tool_retrieval import (
-                build_retrieval_query,
-                select_mcp_tools,
-            )
-
-            tm = ToolManager()
-            tool_vectors = tm.get_mcp_tool_vectors()
-            query = build_retrieval_query(self.messages)
-            query_vector = tm.embed_query(query)
-
-            selected = select_mcp_tools(
-                query_vector,
-                tool_vectors,
-                top_k,
-                getattr(self, "_retrieved_mcp_names", set()),
-            )
-            if selected is None:
-                # No provider / empty index / error → full injection.
-                return all_tools
-
-            # Persist the accumulated selection for subsequent turns.
-            self._retrieved_mcp_names = selected
-
-            selected_mcp = [t for t in mcp_tools if t.name in selected]
-            logger.info(
-                f"[ToolRetrieval] Injecting {len(builtin_tools)} built-in + "
-                f"{len(selected_mcp)}/{len(mcp_tools)} MCP tool(s) (top_k={top_k})"
-            )
-            return builtin_tools + selected_mcp
-        except Exception as e:
-            logger.debug(f"[ToolRetrieval] full injection (retrieval skipped): {e}")
-            return all_tools
 
     def _call_llm_stream(self, retry_on_empty=True, retry_count=0, max_retries=3,
                          _overflow_stage: int = 0) -> Tuple[str, List[Dict], Optional[str]]:
@@ -1175,34 +1120,28 @@ class AgentStreamExecutor:
         turns = self._identify_complete_turns()
         logger.info(f"Sending {len(messages)} messages ({len(turns)} turns) to LLM")
 
-        # Pull in any MCP tools that finished loading since this turn started.
-        # Cheap dict reconciliation (microseconds) — lets the agent pick up
-        # newly available MCP tools mid-conversation without a session restart.
-        try:
-            from agent.tools import ToolManager
-            ToolManager().sync_mcp_into_agent(self)
-        except Exception as e:
-            logger.debug(f"[Agent] MCP sync skipped: {e}")
 
         # Prepare tool definitions. Prefer get_json_schema() when it yields
         # real properties (lets tools augment schema at runtime), otherwise
         # fall back to the static `tool.params` (MCP tools rely on this).
         tools_schema = None
         if self.tools:
-            tools_schema = []
-            for tool in self._select_tools_for_injection():
-                input_schema = tool.params
-                try:
-                    dynamic = (tool.get_json_schema() or {}).get("parameters") or {}
-                    if dynamic.get("properties"):
-                        input_schema = dynamic
-                except Exception:
-                    pass
-                tools_schema.append({
-                    "name": tool.name,
-                    "description": tool.description,
-                    "input_schema": input_schema,
-                })
+            tools_to_inject = self._select_tools_for_injection()
+            if tools_to_inject:
+                tools_schema = []
+                for tool in tools_to_inject:
+                    input_schema = tool.params
+                    try:
+                        dynamic = (tool.get_json_schema() or {}).get("parameters") or {}
+                        if dynamic.get("properties"):
+                            input_schema = dynamic
+                    except Exception:
+                        pass
+                    tools_schema.append({
+                        "name": tool.name,
+                        "description": tool.description,
+                        "input_schema": input_schema,
+                    })
 
         # Debug: dump the full system prompt and messages sent to the LLM.
         # Gated behind `debug` config to avoid flooding normal logs.
@@ -1636,6 +1575,19 @@ class AgentStreamExecutor:
             self._record_tool_result(tool_name, arguments, False)
             return result
 
+        from config import conf
+        try:
+            if not conf().get("tool_call_enabled", False) and getattr(self, "agent", None) is not None:
+                result = {
+                    "status": "error",
+                    "result": "Tool calling is currently disabled in system settings.",
+                    "execution_time": 0,
+                }
+                self._record_tool_result(tool_name, arguments, False)
+                return result
+        except Exception:
+            pass
+
         # A call whose arguments never arrived parses into an empty dict, which
         # would otherwise reach the tool and be reported as one missing field -
         # sending the model off to fix a parameter it never got to send.
@@ -1816,32 +1768,8 @@ class AgentStreamExecutor:
             return error_result
 
     def _permission_denial(self, tool_name: str, arguments: Dict) -> Optional[str]:
-        """Reason this call is not allowed, or None when it may run.
-
-        Never raises: a broken permission check must not take the conversation
-        down with it, so an error here falls through to the historical
-        unrestricted behavior.
-        """
-        agent = self.agent
-        if agent is None:
-            return None
-        try:
-            from agent.permission import FULL_ACCESS, check_tool_call
-
-            mode = agent.effective_permission_mode()
-            if mode == FULL_ACCESS:
-                return None
-            decision = check_tool_call(
-                mode,
-                tool_name,
-                arguments,
-                cwd=agent.effective_cwd(),
-                write_roots=agent.write_roots(),
-            )
-            return None if decision.allowed else decision.reason
-        except Exception as e:
-            logger.warning(f"[Permission] Check skipped for {tool_name}: {e}")
-            return None
+        """Permission check stub: all available tools are safe chat tools."""
+        return None
 
     def _build_tool_not_found_message(self, tool_name: str) -> str:
         """Build a helpful error message when a tool is not found.

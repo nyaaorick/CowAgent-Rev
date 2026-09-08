@@ -76,6 +76,18 @@ const I18N = {
         channel_team_no_candidates: '暂无可选的智能体',
         settings_tab_basic: '基础配置',
         settings_tab_models: '模型配置',
+        settings_tab_json: 'JSON配置',
+        config_json_file: '配置文件:',
+        config_json_format: '格式化',
+        config_json_format_hint: '格式化 JSON (2空格缩进)',
+        config_json_reload: '重新加载',
+        config_json_reload_hint: '重新从磁盘读取配置',
+        config_json_save: '保存配置',
+        config_json_valid: 'JSON 格式正确',
+        config_json_invalid: '语法错误',
+        config_json_saved: '配置已成功保存并生效',
+        config_json_tip: '提示：直接编辑底层 JSON 配置文件。保存 config.json 会热更新系统配置并重置模型桥接；保存 prompts.json 会热更新全局提示词库。快捷键：Ctrl+S 保存，Tab 缩进。',
+        config_json_confirm_reload: '当前有未保存的修改，确定要重新加载吗？',
         knowledge_shared_hint: '知识库默认全员共享，在侧栏「知识」查看和编辑。',
         menu_memory: '记忆', menu_knowledge: '知识', menu_channels: '通道', menu_tasks: '定时',
         menu_logs: '日志',
@@ -213,6 +225,10 @@ const I18N = {
         config_reasoning_effort: '思考强度', config_reasoning_effort_hint: '按当前模型厂商支持的原生枚举发送',
         config_subagent: '子 Agent', config_subagent_hint: '把可独立完成的任务交给子 Agent，多个任务并行执行，只把结论带回主对话',
         config_self_evolution: '自主进化', config_self_evolution_hint: '会话空闲后自动复盘，沉淀记忆、优化技能、处理未完成事项',
+        config_deep_dream: '夜间做梦 (Deep Dream)', config_deep_dream_hint: '每晚定时蒸馏整理近期记忆到 MEMORY.md 与日记中',
+        config_embedding: '向量嵌入 (Embedding)', config_embedding_hint: '后台自动调用向量模型计算记忆文件语义向量（关闭可节省 API 与网络开销）',
+        config_memory_search: '记忆主动检索 (Memory Search)', config_memory_search_hint: '向模型提供 memory_search/memory_get 工具，由模型在对话中自主检索（关闭则不占用工具位）',
+        config_tool_call: '工具调用 (Tool Calling)', config_tool_call_hint: '向模型提供外部工具能力（web_search、web_fetch、send 等）。关闭后仅进行纯文本问答，不向模型暴露工具',
         evolution_badge: '自主学习',
         config_channel_type: '通道类型',
         config_provider: '模型厂商', config_model_name: '模型',
@@ -316,6 +332,18 @@ const I18N = {
         new_team_chat_start: '开始对话',
         new_team_chat_min: '至少选择两个智能体',
         session_history: '历史会话',
+        menu_contacts: '联系人', menu_groups: '群聊',
+        contacts_scan: '扫描通讯录', contacts_scanning: '扫描中…',
+        contacts_search: '搜备注 / 昵称 / 微信号',
+        contacts_sandbox: '调试沙箱', contacts_sandbox_desc: '本地单测环境，不发微信',
+        contacts_empty: '还没有联系人，点上方「扫描通讯录」',
+        contacts_no_match: '没有匹配的联系人',
+        contacts_offline: '微信通道未运行，显示的是上次缓存',
+        contacts_scan_done: '已扫描到 {n} 个会话',
+        sw_allowed: '白名单', sw_allowed_tip: '关闭后忽略此好友的消息',
+        sw_room_allowed: '群白名单', sw_room_allowed_tip: '关闭后忽略此群的消息',
+        sw_auto_answer: '全权代答', sw_auto_answer_tip: '关闭后仅观察，由你人工接管',
+        sw_at_free: '免 @ 模式', sw_at_free_tip: '开启后无需 @ 机器人也会接话',
         ws_toggle: '工作空间', ws_tab_preview: '预览', ws_tab_files: '文件',
         ws_default_workspace: '默认空间', ws_sel_title: '选择工作空间',
         ws_sel_default_hint: '使用默认工作空间（~/cow）', ws_sel_recents: '最近使用',
@@ -381,6 +409,9 @@ const I18N = {
         edit_disabled_reply_active: '正在生成回复，暂时无法编辑。',
         delete_disabled_reply_active: '正在生成回复，暂时无法删除。',
         untitled_session: '新对话',
+        wcf_session_label: '微信',
+        wcf_session_readonly: '这是微信对话，只能在这里查看；回复请在微信里发。',
+        wcf_send_as_me: '以你本人的身份发给对方…',
         context_cleared: '— 以上内容已从上下文中移除 —',
         tip_new_chat: '新建对话',
         tip_clear_context: '清除上下文',
@@ -480,6 +511,18 @@ const I18N = {
         channel_team_no_candidates: '暫無可選的智慧體',
         settings_tab_basic: '基礎設定',
         settings_tab_models: '模型設定',
+        settings_tab_json: 'JSON設定',
+        config_json_file: '設定檔案:',
+        config_json_format: '格式化',
+        config_json_format_hint: '格式化 JSON (2空格縮排)',
+        config_json_reload: '重新載入',
+        config_json_reload_hint: '重新從磁碟讀取設定',
+        config_json_save: '儲存設定',
+        config_json_valid: 'JSON 格式正確',
+        config_json_invalid: '語法錯誤',
+        config_json_saved: '設定已成功儲存並生效',
+        config_json_tip: '提示：直接編輯底層 JSON 設定檔案。儲存 config.json 會熱更新系統設定並重置模型橋接；儲存 prompts.json 會熱更新全域提示詞庫。快速鍵：Ctrl+S 儲存，Tab 縮排。',
+        config_json_confirm_reload: '目前有未儲存的修改，確定要重新載入嗎？',
         knowledge_shared_hint: '知識庫預設全員共享，在側欄「知識」查看和編輯。',
         menu_memory: '記憶', menu_knowledge: '知識', menu_channels: '管道', menu_tasks: '定時',
         menu_logs: '日誌',
@@ -617,6 +660,10 @@ const I18N = {
         config_reasoning_effort: '思考強度', config_reasoning_effort_hint: '按目前模型廠商支援的原生枚舉傳送',
         config_subagent: '子 Agent', config_subagent_hint: '把可獨立完成的任務交給子 Agent，多個任務並行執行，只把結論帶回主對話',
         config_self_evolution: '自主進化', config_self_evolution_hint: '會話空閒後自動覆盤，沉澱記憶、最佳化技能、處理未完成事項',
+        config_deep_dream: '夜間做夢 (Deep Dream)', config_deep_dream_hint: '每晚定時蒸餾整理近期記憶到 MEMORY.md 與日記中',
+        config_embedding: '向量嵌入 (Embedding)', config_embedding_hint: '後台自動調用向量模型計算記憶文件語意向量（關閉可節省 API 與網路開銷）',
+        config_memory_search: '記憶主動檢索 (Memory Search)', config_memory_search_hint: '向模型提供 memory_search/memory_get 工具，由模型在對話中自主檢索（關閉則不佔用工具位）',
+        config_tool_call: '工具調用 (Tool Calling)', config_tool_call_hint: '向模型提供外部工具能力（web_search、web_fetch、send 等）。關閉後僅進行純文字問答，不向模型暴露工具',
         evolution_badge: '自主學習',
         config_channel_type: '管道型別',
         config_provider: '模型廠商', config_model_name: '模型',
@@ -720,6 +767,18 @@ const I18N = {
         new_team_chat_start: '開始對話',
         new_team_chat_min: '至少選擇兩個智慧體',
         session_history: '歷史會話',
+        menu_contacts: '聯絡人', menu_groups: '群聊',
+        contacts_scan: '掃描通訊錄', contacts_scanning: '掃描中…',
+        contacts_search: '搜備註 / 暱稱 / 微信號',
+        contacts_sandbox: '除錯沙箱', contacts_sandbox_desc: '本地單測環境，不發微信',
+        contacts_empty: '還沒有聯絡人，點上方「掃描通訊錄」',
+        contacts_no_match: '沒有符合的聯絡人',
+        contacts_offline: '微信通道未執行，顯示的是上次快取',
+        contacts_scan_done: '已掃描到 {n} 個會話',
+        sw_allowed: '白名單', sw_allowed_tip: '關閉後忽略此好友的訊息',
+        sw_room_allowed: '群白名單', sw_room_allowed_tip: '關閉後忽略此群的訊息',
+        sw_auto_answer: '全權代答', sw_auto_answer_tip: '關閉後僅觀察，由你人工接管',
+        sw_at_free: '免 @ 模式', sw_at_free_tip: '開啟後無需 @ 機器人也會接話',
         ws_toggle: '工作空間', ws_tab_preview: '預覽', ws_tab_files: '檔案',
         ws_default_workspace: '預設空間', ws_sel_title: '選擇工作空間',
         ws_sel_default_hint: '使用預設工作空間（~/cow）', ws_sel_recents: '最近使用',
@@ -785,6 +844,9 @@ const I18N = {
         edit_disabled_reply_active: '正在生成回覆，暫時無法編輯。',
         delete_disabled_reply_active: '正在生成回覆，暫時無法刪除。',
         untitled_session: '新對話',
+        wcf_session_label: '微信',
+        wcf_session_readonly: '這是微信對話，只能在這裡查看；回覆請在微信裡發。',
+        wcf_send_as_me: '以你本人的身分傳送給對方…',
         context_cleared: '— 以上內容已從上下文中移除 —',
         tip_new_chat: '新建對話',
         tip_clear_context: '清除上下文',
@@ -879,6 +941,18 @@ const I18N = {
         channel_team_no_candidates: 'No agents available',
         settings_tab_basic: 'General',
         settings_tab_models: 'Models',
+        settings_tab_json: 'JSON Config',
+        config_json_file: 'Config File:',
+        config_json_format: 'Format',
+        config_json_format_hint: 'Prettify JSON (2 spaces indent)',
+        config_json_reload: 'Reload',
+        config_json_reload_hint: 'Reload from disk',
+        config_json_save: 'Save Config',
+        config_json_valid: 'Valid JSON',
+        config_json_invalid: 'Syntax Error',
+        config_json_saved: 'Configuration saved and reloaded successfully',
+        config_json_tip: 'Tip: Directly edit underlying JSON config files. Saving config.json reloads system settings and resets bot bridge; saving prompts.json updates prompt templates. Shortcuts: Ctrl+S to save, Tab to indent.',
+        config_json_confirm_reload: 'You have unsaved changes. Are you sure you want to reload?',
         knowledge_shared_hint: 'Knowledge is shared by every Agent. Open it from the Knowledge page.',
         menu_memory: 'Memory', menu_knowledge: 'Knowledge', menu_channels: 'Channels', menu_tasks: 'Tasks',
         menu_logs: 'Logs',
@@ -1016,6 +1090,10 @@ const I18N = {
         config_reasoning_effort: 'Reasoning Effort', config_reasoning_effort_hint: 'Sent as the active provider\'s native enum value',
         config_subagent: 'Sub Agents', config_subagent_hint: 'Hand self-contained tasks to sub agents, which run in parallel and report back only their conclusions',
         config_self_evolution: 'Self-Evolution', config_self_evolution_hint: 'Auto-review idle conversations to consolidate memory, improve skills, and follow up on unfinished tasks',
+        config_deep_dream: 'Deep Dream', config_deep_dream_hint: 'Nightly automated memory distillation into MEMORY.md and dream diary',
+        config_embedding: 'Vector Embedding', config_embedding_hint: 'Background embedding generation for semantic memory search (turn off to save API quota)',
+        config_memory_search: 'Memory Search', config_memory_search_hint: 'Inject memory_search and memory_get tools for the agent to actively retrieve past memories',
+        config_tool_call: 'Tool Calling', config_tool_call_hint: 'Inject tools (web_search, web_fetch, send, etc.) into the agent. When turned off, operates in pure text chat mode without tools',
         evolution_badge: 'Self-learned',
         config_channel_type: 'Channel Type',
         config_provider: 'Provider', config_model_name: 'Model',
@@ -1119,6 +1197,21 @@ const I18N = {
         new_team_chat_start: 'Start chat',
         new_team_chat_min: 'Pick at least two Agents',
         session_history: 'History',
+        menu_contacts: 'Contacts', menu_groups: 'Groups',
+        contacts_scan: 'Scan address book', contacts_scanning: 'Scanning...',
+        contacts_search: 'Search remark / nickname / WeChat ID',
+        contacts_sandbox: 'Debug sandbox',
+        contacts_sandbox_desc: 'Local test conversation; nothing reaches WeChat',
+        contacts_empty: 'No contacts yet - press "Scan address book" above',
+        contacts_no_match: 'No matching contacts',
+        contacts_offline: 'WeChat channel is not running; showing the last cached list',
+        contacts_scan_done: 'Found {n} sessions',
+        sw_allowed: 'Allowed', sw_allowed_tip: 'Off: messages from this contact are ignored',
+        sw_room_allowed: 'Allowed', sw_room_allowed_tip: 'Off: messages from this group are ignored',
+        sw_auto_answer: 'Auto-answer',
+        sw_auto_answer_tip: 'Off: observe only - you reply by hand',
+        sw_at_free: 'No @ needed',
+        sw_at_free_tip: 'On: the agent joins in without being @mentioned',
         ws_toggle: 'Workspace', ws_tab_preview: 'Preview', ws_tab_files: 'Files',
         ws_default_workspace: 'Default', ws_sel_title: 'Select workspace',
         ws_sel_default_hint: 'Use the default workspace (~/cow)', ws_sel_recents: 'Recent',
@@ -1184,6 +1277,9 @@ const I18N = {
         edit_disabled_reply_active: 'Reply is being generated; editing is temporarily unavailable.',
         delete_disabled_reply_active: 'Reply is being generated; deletion is temporarily unavailable.',
         untitled_session: 'New Chat',
+        wcf_session_label: 'WeChat',
+        wcf_session_readonly: 'A WeChat conversation, shown here read-only. Reply from WeChat.',
+        wcf_send_as_me: 'Send to this contact as yourself...',
         context_cleared: '— Context above has been cleared —',
         tip_new_chat: 'New Chat',
         tip_clear_context: 'Clear Context',
@@ -1671,6 +1767,8 @@ document.addEventListener('DOMContentLoaded', initTaskNotifyToggles);
 // =====================================================================
 const VIEW_META = {
     chat:     { group: 'nav_chat',    page: 'menu_chat' },
+    contacts: { group: 'nav_chat',    page: 'menu_contacts' },
+    groups:   { group: 'nav_chat',    page: 'menu_groups' },
     agents:   { group: 'nav_manage',  page: 'menu_agents' },
     config:   { group: 'nav_manage',  page: 'menu_config' },
     skills:   { group: 'nav_manage',  page: 'menu_skills' },
@@ -1683,13 +1781,34 @@ const VIEW_META = {
 
 let currentView = 'chat';
 
+// Views that are the chat pane under a different name. Contacts and Groups are
+// the same conversation window with a different list on the left, so they
+// reuse it whole -- bubbles, composer, workspace drawer and all -- rather than
+// duplicating that subtree twice more in the page.
+const VIEW_DOM_ALIAS = { contacts: 'chat', groups: 'chat' };
+
+// Which sidebar entry lights up for a view that has none of its own.
+const VIEW_SIDEBAR_ALIAS = { chat: 'contacts' };
+
+// True for any view whose DOM is the chat pane. Callers that used to compare
+// against 'chat' must ask this instead, or navigating from Contacts would
+// bounce the operator out of the address book they just clicked in.
+function isChatPaneView(viewId) {
+    return viewId === 'chat' || VIEW_DOM_ALIAS[viewId] === 'chat';
+}
+
 function navigateTo(viewId) {
     if (!VIEW_META[viewId]) return;
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-    const target = document.getElementById('view-' + viewId);
+    const target = document.getElementById('view-' + (VIEW_DOM_ALIAS[viewId] || viewId));
     if (target) target.classList.add('active');
+    // 'chat' has no sidebar entry of its own any more -- the Chat group lists
+    // Contacts and Groups, and the chat pane is reached through them (or
+    // programmatically, e.g. startChatWithAgent). Without this the sidebar
+    // would show nothing highlighted after any direct navigateTo('chat').
+    const navId = VIEW_SIDEBAR_ALIAS[viewId] || viewId;
     document.querySelectorAll('.sidebar-item').forEach(item => {
-        item.classList.toggle('active', item.dataset.view === viewId);
+        item.classList.toggle('active', item.dataset.view === navId);
     });
     const meta = VIEW_META[viewId];
     document.getElementById('breadcrumb-group').textContent = t(meta.group);
@@ -1718,7 +1837,11 @@ function navigateTo(viewId) {
     document.querySelectorAll('[id$="-status"]').forEach(el => {
         el.classList.add('opacity-0');
     });
-    
+
+    // The left pane and the header switches belong to contacts.js, which is
+    // loaded after this file and may legitimately be absent.
+    if (typeof ctOnViewChange === 'function') ctOnViewChange(viewId);
+
     if (window.innerWidth < 1024) closeSidebar();
 }
 
@@ -3509,6 +3632,72 @@ startPolling();
 
 const chatInput = document.getElementById('chat-input');
 const sendBtn = document.getElementById('send-btn');
+
+// Conversations the console can display but not continue, keyed by session id.
+// Sending into one from here would answer in the browser while the contact
+// waits in WeChat, so the composer locks instead. Declared alongside the
+// composer's own elements because updateSendBtnState() consults them.
+const MIRRORED_CHANNELS = ['wcf'];
+let _sessionChannels = {};
+
+function isMirroredSession(sid) {
+    if (!sid) return false;
+    if (MIRRORED_CHANNELS.includes(_sessionChannels[sid])) return true;
+    // Characteristic WeChat id patterns: personal contacts, chatrooms, or built-in filehelper
+    if (sid.startsWith('wxid_') || sid.endsWith('@chatroom') || sid === 'filehelper' || sid.startsWith('gh_')) {
+        return true;
+    }
+    // _sessionChannels only knows a session once a message has reached it, so
+    // a contact selected from the address book who has never been written to
+    // is missing from it. ctCatalog (contacts.js) is the same address book the
+    // server now checks first for exactly this reason -- see is_wechat_session
+    // in contacts_api.py -- so it is asked the same question here, client-side.
+    if (typeof ctCatalog !== 'undefined' && ctCatalog.some(row => row.wxid === sid)) {
+        return true;
+    }
+    return false;
+}
+
+// A mirrored conversation happens in WeChat, so nothing in this tab drives its
+// updates: /poll drains the web channel's own reply queue, which a WeChat reply
+// never enters. Re-read the stored conversation instead, and redraw only when
+// it actually grew -- the check asks for one turn purely to read `total`.
+const MIRROR_REFRESH_MS = 4000;
+let _mirrorTotal = -1;
+let _mirrorTimer = null;
+
+function stopMirrorRefresh() {
+    if (_mirrorTimer) clearInterval(_mirrorTimer);
+    _mirrorTimer = null;
+}
+
+function startMirrorRefresh() {
+    stopMirrorRefresh();
+    if (!isMirroredSession(sessionId)) return;
+    _mirrorTimer = setInterval(() => {
+        const sid = sessionId;
+        // A hidden tab redraws nothing anyone can see; switching away from the
+        // conversation ends the job entirely.
+        if (!isMirroredSession(sid)) { stopMirrorRefresh(); return; }
+        if (document.hidden || historyLoading) return;
+        fetch(`/api/history?session_id=${encodeURIComponent(sid)}&page=1&page_size=1`)
+            .then(r => r.json())
+            .then(data => {
+                if (sid !== sessionId || data.status !== 'success') return;
+                if (typeof data.total !== 'number' || data.total === _mirrorTotal) return;
+                // Redraw from scratch: the turns arrived while the agent was
+                // answering someone in WeChat, so there is no local state to
+                // preserve and reloading keeps this identical to a fresh open.
+                messagesDiv.innerHTML = '';
+                historyPage = 0;
+                historyHasMore = false;
+                historyLoading = false;
+                loadHistory(1);
+            })
+            .catch(() => {});
+    }, MIRROR_REFRESH_MS);
+}
+
 const steerBtn = document.getElementById('steer-btn');
 const messagesDiv = document.getElementById('chat-messages');
 const fileInput = document.getElementById('file-input');
@@ -4066,6 +4255,29 @@ sendBtn.addEventListener('click', () => {
     }
 });
 
+// Lock or release the composer for the open conversation. A WeChat chat is
+// mirrored here for watching; typing into it would send the reply to the
+// browser while the contact keeps waiting in WeChat.
+function updateComposerLock() {
+    // A WeChat conversation is no longer read-only: what the operator types is
+    // carried to the contact under their own account. The composer therefore
+    // stays enabled, and only the placeholder changes -- to say plainly who
+    // the message is about to go out as, since sending is not undoable.
+    //
+    // The mirror refresh still runs: the contact's replies arrive through
+    // WeChat, never through this tab's own reply queue.
+    const mirrored = isMirroredSession(sessionId);
+    const card = document.getElementById('composer-card');
+    if (card) card.classList.remove('composer-locked');
+    if (chatInput) {
+        chatInput.disabled = false;
+        chatInput.placeholder = mirrored ? t('wcf_send_as_me') : t('input_placeholder');
+    }
+    if (mirrored) startMirrorRefresh();
+    else stopMirrorRefresh();
+    updateSendBtnState();
+}
+
 function updateSendBtnState() {
     if (sendBtnMode === 'cancel') {
         // Self-heal a stuck Cancel button: if there's no live stream backing
@@ -4079,7 +4291,8 @@ function updateSendBtnState() {
             return;
         }
     }
-    sendBtn.disabled = uploadingCount > 0 || (!chatInput.value.trim() && pendingAttachments.length === 0);
+    sendBtn.disabled = uploadingCount > 0
+        || (!chatInput.value.trim() && pendingAttachments.length === 0);
     updateSteerBtnState();
 }
 
@@ -5270,11 +5483,17 @@ function sendVoiceMessage(text, audioUrl) {
         .then(data => {
             if (data.status === 'success') {
                 rememberLiveSpeaker(data);
-                setLoadingSpeaker(loadingEl, data.request_id);
+                if (loadingEl) setLoadingSpeaker(loadingEl, data.request_id);
                 if (data.inline_reply) {
                     // Synchronous fast-path reply (e.g. /cancel); skip SSE.
-                    loadingEl.remove();
+                    if (loadingEl) loadingEl.remove();
                     addBotMessage(data.inline_reply, new Date());
+                } else if (data.relayed) {
+                    // Carried to WeChat as the operator. Nothing is being
+                    // generated, so there is no stream to wait on; the mirror
+                    // refresh redraws the thread from the stored conversation.
+                    if (loadingEl) loadingEl.remove();
+                    resetSendBtnSendMode();
                 } else if (data.stream) {
                     setSendBtnCancelMode(data.request_id);
                     startSSE(data.request_id, loadingEl, timestamp, titleInfo);
@@ -5282,7 +5501,7 @@ function sendVoiceMessage(text, audioUrl) {
                     loadingContainers[data.request_id] = loadingEl;
                 }
             } else {
-                loadingEl.remove();
+                if (loadingEl) loadingEl.remove();
                 addBotMessage(t('error_send'), new Date());
                 resetSendBtnSendMode();
             }
@@ -5292,7 +5511,7 @@ function sendVoiceMessage(text, audioUrl) {
                 setTimeout(() => postWithRetry(attempt + 1), RETRY_DELAY_MS * (attempt + 1));
                 return;
             }
-            loadingEl.remove();
+            if (loadingEl) loadingEl.remove();
             addBotMessage(t('error_send'), new Date());
         });
     }
@@ -5473,10 +5692,16 @@ async function regenerateResponse(botMsgEl) {
         .then(data => {
             if (data.status === 'success') {
                 rememberLiveSpeaker(data);
-                setLoadingSpeaker(loadingEl, data.request_id);
+                if (loadingEl) setLoadingSpeaker(loadingEl, data.request_id);
                 if (data.inline_reply) {
-                    loadingEl.remove();
+                    if (loadingEl) loadingEl.remove();
                     addBotMessage(data.inline_reply, new Date());
+                } else if (data.relayed) {
+                    // Carried to WeChat as the operator. Nothing is being
+                    // generated, so there is no stream to wait on; the mirror
+                    // refresh redraws the thread from the stored conversation.
+                    if (loadingEl) loadingEl.remove();
+                    resetSendBtnSendMode();
                 } else if (data.stream) {
                     setSendBtnCancelMode(data.request_id);
                     startSSE(data.request_id, loadingEl, timestamp, null);
@@ -5484,14 +5709,14 @@ async function regenerateResponse(botMsgEl) {
                     loadingContainers[data.request_id] = loadingEl;
                 }
             } else {
-                loadingEl.remove();
+                if (loadingEl) loadingEl.remove();
                 addBotMessage(t('error_send'), new Date());
                 resetSendBtnSendMode();
             }
         })
         .catch(err => {
             if (err.name === 'AbortError') {
-                loadingEl.remove();
+                if (loadingEl) loadingEl.remove();
                 addBotMessage(t('error_timeout'), new Date());
                 resetSendBtnSendMode();
                 return;
@@ -5501,7 +5726,7 @@ async function regenerateResponse(botMsgEl) {
                 setTimeout(() => postWithRetry(attempt + 1), RETRY_DELAY_MS * (attempt + 1));
                 return;
             }
-            loadingEl.remove();
+            if (loadingEl) loadingEl.remove();
             addBotMessage(t('error_send'), new Date());
             resetSendBtnSendMode();
         });
@@ -5514,6 +5739,9 @@ function sendMessage() {
     // Do NOT branch on sendBtnMode here: Enter should always send (so
     // typing "/cancel" submits normally). Cancel is wired only to the
     // send button's pointer click — see send-btn listener above.
+
+    // A WeChat conversation is carried across to the contact via relay_to_wechat
+    // rather than answered by the agent (see relaying logic below).
 
     const text = chatInput.value.trim();
     if (!text && pendingAttachments.length === 0) return;
@@ -5534,9 +5762,24 @@ function sendMessage() {
 
     const timestamp = new Date();
     const attachments = [...pendingAttachments];
-    addUserMessage(text, timestamp, attachments);
 
-    const loadingEl = addLoadingIndicator();
+    // In a WeChat conversation the operator is not talking to the agent, they
+    // are talking to the contact as themselves. So the message they just typed
+    // belongs on the same side as the agent's own replies -- that is the side
+    // the contact sees as "the account owner" -- and not on the side reserved
+    // for what the contact said.
+    //
+    // Nothing is being generated either, so there is no turn to wait for: the
+    // thinking indicator would promise a reply that is never coming.
+    const relaying = typeof isMirroredSession === 'function'
+        && isMirroredSession(sessionId);
+    if (relaying) {
+        addBotMessage(text, timestamp);
+    } else {
+        addUserMessage(text, timestamp, attachments);
+    }
+
+    const loadingEl = relaying ? null : addLoadingIndicator();
 
     chatInput.value = '';
     resetComposerHeight();
@@ -5572,12 +5815,18 @@ function sendMessage() {
         .then(data => {
             if (data.status === 'success') {
                 rememberLiveSpeaker(data);
-                setLoadingSpeaker(loadingEl, data.request_id);
+                if (loadingEl) setLoadingSpeaker(loadingEl, data.request_id);
                 if (data.inline_reply) {
                     // Channel handled synchronously (e.g. /cancel fast-path);
                     // render as a bot bubble and skip SSE entirely.
-                    loadingEl.remove();
+                    if (loadingEl) loadingEl.remove();
                     addBotMessage(data.inline_reply, new Date());
+                } else if (data.relayed) {
+                    // Carried to WeChat as the operator. Nothing is being
+                    // generated, so there is no stream to wait on; the mirror
+                    // refresh redraws the thread from the stored conversation.
+                    if (loadingEl) loadingEl.remove();
+                    resetSendBtnSendMode();
                 } else if (data.stream) {
                     setSendBtnCancelMode(data.request_id);
                     startSSE(data.request_id, loadingEl, timestamp, titleInfo);
@@ -5585,14 +5834,14 @@ function sendMessage() {
                     loadingContainers[data.request_id] = loadingEl;
                 }
             } else {
-                loadingEl.remove();
+                if (loadingEl) loadingEl.remove();
                 addBotMessage(t('error_send'), new Date());
                 resetSendBtnSendMode();
             }
         })
         .catch(err => {
             if (err.name === 'AbortError') {
-                loadingEl.remove();
+                if (loadingEl) loadingEl.remove();
                 addBotMessage(t('error_timeout'), new Date());
                 resetSendBtnSendMode();
                 return;
@@ -5602,7 +5851,7 @@ function sendMessage() {
                 setTimeout(() => postWithRetry(attempt + 1), RETRY_DELAY_MS * (attempt + 1));
                 return;
             }
-            loadingEl.remove();
+            if (loadingEl) loadingEl.remove();
             addBotMessage(t('error_send'), new Date());
             resetSendBtnSendMode();
         });
@@ -6891,6 +7140,9 @@ function loadHistory(page) {
 
             const prevScrollHeight = messagesDiv.scrollHeight;
             const isFirstLoad = page === 1;
+            // Baseline for the mirrored-conversation refresher below: the turn
+            // count as of the last time this view was actually drawn.
+            if (isFirstLoad && typeof data.total === 'number') _mirrorTotal = data.total;
 
             // On first load, remove the welcome screen if history exists
             if (isFirstLoad) {
@@ -7209,7 +7461,7 @@ function newChat(optimistic = true, inherit = true) {
             }
         });
     });
-    if (currentView !== 'chat') navigateTo('chat');
+    if (!isChatPaneView(currentView)) navigateTo('chat');
 
     // Show panel and load full session list, then prepend the new session on top
     const panel = document.getElementById('session-panel');
@@ -7436,6 +7688,7 @@ function _fetchSessionPage(page, clear, onDone) {
             const sessionKey = s => `${(s.agent && s.agent.id) || ''}::${s.session_id}`;
             const seen = new Set(_sessionItems.map(sessionKey));
             sessions.forEach(s => {
+                _sessionChannels[s.session_id] = s.channel || '';
                 const key = sessionKey(s);
                 if (seen.has(key)) return;
                 seen.add(key);
@@ -7443,6 +7696,7 @@ function _fetchSessionPage(page, clear, onDone) {
             });
 
             _renderSessionList();
+            updateComposerLock();
             if (typeof onDone === 'function') onDone();
         })
         .catch(() => { _sessionLoading = false; });
@@ -7668,11 +7922,16 @@ function _sessionItemEl(s, indent) {
     const roster = s.participants || [];
     const crowd = roster.length > 1 ? roster.slice(0, 3) : null;
     const overflow = roster.length - 3;
+    const mirrored = MIRRORED_CHANNELS.includes(s.channel || '');
+    if (mirrored) item.classList.add('session-item-mirrored');
+    const plainIcon = mirrored
+        ? `<i class="fab fa-weixin session-icon" title="${escapeHtml(t('wcf_session_label'))}"></i>`
+        : `<i class="fas ${s.pinned ? 'fa-thumbtack' : 'fa-message'} session-icon"></i>`;
     const face = crowd
         ? `<span class="session-faces">${crowd.map(a => agentAvatarHTML(a, 20)).join('')}`
             + (overflow > 0 ? `<span class="session-face-more">+${overflow}</span>` : '')
             + `</span>`
-        : `<i class="fas ${s.pinned ? 'fa-thumbtack' : 'fa-message'} session-icon"></i>`;
+        : plainIcon;
     item.innerHTML = `
         ${face}
         <span class="session-title" title="${escapeHtml(title)}">${escapeHtml(title)}</span>
@@ -7818,7 +8077,7 @@ function switchSession(newSessionId, agentId) {
         localStorage.setItem('cow_active_agent', activeAgentId);
     }
     if (newSessionId === sessionId) {
-        if (currentView !== 'chat') navigateTo('chat');
+        if (!isChatPaneView(currentView)) navigateTo('chat');
         renderComposerIdentity();
         return;
     }
@@ -7865,8 +8124,9 @@ function switchSession(newSessionId, agentId) {
     });
 
     if (_isMobileView()) closeSessionPanel();
-    if (currentView !== 'chat') navigateTo('chat');
+    if (!isChatPaneView(currentView)) navigateTo('chat');
     renderComposerIdentity();
+    updateComposerLock();
 }
 
 // In-place rename a session title: replace the title <span> with an <input>,
@@ -8407,6 +8667,18 @@ function initConfigView(data) {
     syncReasoningEffortOptions();
     document.getElementById('cfg-subagent').checked = data.subagent_enabled !== false;
     document.getElementById('cfg-self-evolution').checked = data.self_evolution_enabled === true;
+    if (document.getElementById('cfg-deep-dream')) {
+        document.getElementById('cfg-deep-dream').checked = data.deep_dream_enabled === true;
+    }
+    if (document.getElementById('cfg-embedding')) {
+        document.getElementById('cfg-embedding').checked = data.embedding_enabled === true;
+    }
+    if (document.getElementById('cfg-memory-search')) {
+        document.getElementById('cfg-memory-search').checked = data.memory_search_enabled === true;
+    }
+    if (document.getElementById('cfg-tool-call')) {
+        document.getElementById('cfg-tool-call').checked = data.tool_call_enabled === true;
+    }
 
     // Reflect the current UI language (already resolved, may include the user's
     // local choice) on the selector so it stays in sync with the top-right toggle.
@@ -8736,6 +9008,10 @@ function saveAgentConfig() {
         reasoning_effort_by_model: mergedEffortByModel,
         subagent_enabled: document.getElementById('cfg-subagent').checked,
         self_evolution_enabled: document.getElementById('cfg-self-evolution').checked,
+        deep_dream_enabled: document.getElementById('cfg-deep-dream') ? document.getElementById('cfg-deep-dream').checked : false,
+        embedding_enabled: document.getElementById('cfg-embedding') ? document.getElementById('cfg-embedding').checked : false,
+        memory_search_enabled: document.getElementById('cfg-memory-search') ? document.getElementById('cfg-memory-search').checked : false,
+        tool_call_enabled: document.getElementById('cfg-tool-call') ? document.getElementById('cfg-tool-call').checked : false,
     };
 
     const btn = document.getElementById('cfg-agent-save');
@@ -8841,11 +9117,261 @@ function loadConfigView() {
 }
 
 function switchConfigTab(tab) {
-    ['basic', 'models'].forEach(name => {
+    ['basic', 'models', 'json'].forEach(name => {
         document.getElementById(`config-tab-${name}`)?.classList.toggle('active', name === tab);
         document.getElementById(`config-panel-${name}`)?.classList.toggle('hidden', name !== tab);
     });
     if (tab === 'models') loadModelsView();
+    if (tab === 'json') loadJsonConfigView();
+}
+
+// =====================================================================
+// JSON Config View
+// =====================================================================
+let currentJsonConfigFileName = 'config.json';
+let originalJsonConfigContent = '';
+let jsonEditorInitialized = false;
+
+function initJsonEditorListeners() {
+    if (jsonEditorInitialized) return;
+    const editor = document.getElementById('config-json-editor');
+    if (!editor) return;
+
+    // Handle Tab key inside editor for clean 2-space indentation
+    editor.addEventListener('keydown', function(e) {
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            const start = this.selectionStart;
+            const end = this.selectionEnd;
+            const value = this.value;
+            this.value = value.substring(0, start) + '  ' + value.substring(end);
+            this.selectionStart = this.selectionEnd = start + 2;
+            onJsonEditorInput();
+        } else if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+            e.preventDefault();
+            saveJsonConfig();
+        }
+    });
+
+    // Real-time syntax check and dirty state check on input
+    editor.addEventListener('input', onJsonEditorInput);
+    jsonEditorInitialized = true;
+}
+
+function onJsonEditorInput() {
+    const editor = document.getElementById('config-json-editor');
+    if (!editor) return;
+    const content = editor.value;
+
+    // Update filesize
+    const sizeBytes = new Blob([content]).size;
+    const sizeStr = sizeBytes > 1024 ? (sizeBytes / 1024).toFixed(1) + ' KB' : sizeBytes + ' B';
+    const sizeEl = document.getElementById('config-json-filesize');
+    if (sizeEl) sizeEl.textContent = sizeStr;
+
+    // Check dirty indicator
+    const dirtyEl = document.getElementById('config-json-modified-indicator');
+    if (dirtyEl) {
+        dirtyEl.classList.toggle('hidden', content === originalJsonConfigContent);
+    }
+
+    // Validate JSON syntax
+    validateJsonSyntax(content);
+}
+
+function validateJsonSyntax(content) {
+    const statusEl = document.getElementById('config-json-status');
+    const statusTextEl = document.getElementById('config-json-status-text');
+    const statusIconEl = document.getElementById('config-json-status-icon');
+    const errorAlertEl = document.getElementById('config-json-error-alert');
+    const errorMsgEl = document.getElementById('config-json-error-msg');
+    const saveBtn = document.getElementById('config-json-btn-save');
+
+    if (!content.trim()) {
+        if (statusEl) {
+            statusEl.className = 'flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400 font-medium transition-colors';
+        }
+        if (statusIconEl) statusIconEl.className = 'fas fa-triangle-exclamation text-[11px]';
+        if (statusTextEl) statusTextEl.textContent = 'Empty';
+        if (errorAlertEl) errorAlertEl.classList.add('hidden');
+        if (saveBtn) saveBtn.disabled = true;
+        return false;
+    }
+
+    try {
+        JSON.parse(content);
+        if (statusEl) {
+            statusEl.className = 'flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400 font-medium transition-colors';
+        }
+        if (statusIconEl) statusIconEl.className = 'fas fa-check-circle text-[11px]';
+        if (statusTextEl) statusTextEl.textContent = t('config_json_valid');
+        if (errorAlertEl) errorAlertEl.classList.add('hidden');
+        if (saveBtn) saveBtn.disabled = false;
+        return true;
+    } catch (err) {
+        if (statusEl) {
+            statusEl.className = 'flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400 font-medium transition-colors';
+        }
+        if (statusIconEl) statusIconEl.className = 'fas fa-circle-exclamation text-[11px]';
+        if (statusTextEl) statusTextEl.textContent = t('config_json_invalid');
+        if (errorAlertEl) {
+            errorAlertEl.classList.remove('hidden');
+            if (errorMsgEl) errorMsgEl.textContent = err.message;
+        }
+        if (saveBtn) saveBtn.disabled = false;
+        return false;
+    }
+}
+
+function loadJsonConfigView(fileName) {
+    initJsonEditorListeners();
+    const targetFile = fileName || currentJsonConfigFileName || 'config.json';
+    currentJsonConfigFileName = targetFile;
+
+    const selectEl = document.getElementById('config-json-file-select');
+    if (selectEl && selectEl.value !== targetFile) {
+        selectEl.value = targetFile;
+    }
+
+    const currentFilenameEl = document.getElementById('config-json-current-filename');
+    if (currentFilenameEl) currentFilenameEl.textContent = targetFile;
+
+    const editor = document.getElementById('config-json-editor');
+    if (editor) {
+        editor.disabled = true;
+        editor.placeholder = 'Loading ' + targetFile + '...';
+    }
+
+    fetch('/api/config/json?file=' + encodeURIComponent(targetFile))
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'success') {
+                originalJsonConfigContent = data.content || '';
+                if (editor) {
+                    editor.value = originalJsonConfigContent;
+                    editor.disabled = false;
+                }
+                const pathEl = document.getElementById('config-json-filepath');
+                if (pathEl) {
+                    pathEl.textContent = data.path || targetFile;
+                    pathEl.title = data.path || targetFile;
+                }
+                onJsonEditorInput();
+            } else {
+                if (editor) {
+                    editor.value = '';
+                    editor.disabled = false;
+                    editor.placeholder = 'Failed to load: ' + (data.message || 'Unknown error');
+                }
+            }
+        })
+        .catch(err => {
+            if (editor) {
+                editor.disabled = false;
+                editor.placeholder = 'Failed to load: ' + err.message;
+            }
+        });
+}
+
+function onJsonConfigFileChange() {
+    const selectEl = document.getElementById('config-json-file-select');
+    if (!selectEl) return;
+    const newFile = selectEl.value;
+    const editor = document.getElementById('config-json-editor');
+    if (editor && editor.value !== originalJsonConfigContent) {
+        if (!confirm(t('config_json_confirm_reload'))) {
+            selectEl.value = currentJsonConfigFileName;
+            return;
+        }
+    }
+    currentJsonConfigFileName = newFile;
+    loadJsonConfigView(newFile);
+}
+
+function formatJsonConfig() {
+    const editor = document.getElementById('config-json-editor');
+    if (!editor) return;
+    try {
+        const obj = JSON.parse(editor.value);
+        editor.value = JSON.stringify(obj, null, 2);
+        onJsonEditorInput();
+    } catch (err) {
+        validateJsonSyntax(editor.value);
+    }
+}
+
+function reloadJsonConfig() {
+    const editor = document.getElementById('config-json-editor');
+    if (editor && editor.value !== originalJsonConfigContent) {
+        if (!confirm(t('config_json_confirm_reload'))) {
+            return;
+        }
+    }
+    loadJsonConfigView(currentJsonConfigFileName);
+}
+
+function saveJsonConfig() {
+    const editor = document.getElementById('config-json-editor');
+    if (!editor) return;
+    const content = editor.value;
+
+    if (!validateJsonSyntax(content)) {
+        return;
+    }
+
+    const saveBtn = document.getElementById('config-json-btn-save');
+    if (saveBtn) saveBtn.disabled = true;
+
+    fetch('/api/config/json', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            file: currentJsonConfigFileName,
+            content: content
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'success') {
+            originalJsonConfigContent = content;
+            onJsonEditorInput();
+
+            const statusEl = document.getElementById('config-json-status');
+            const statusTextEl = document.getElementById('config-json-status-text');
+            const statusIconEl = document.getElementById('config-json-status-icon');
+            if (statusEl) {
+                statusEl.className = 'flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400 font-medium transition-colors';
+            }
+            if (statusIconEl) statusIconEl.className = 'fas fa-check-double text-[11px]';
+            if (statusTextEl) statusTextEl.textContent = t('config_json_saved');
+
+            setTimeout(() => {
+                validateJsonSyntax(editor.value);
+            }, 3000);
+
+            if (currentJsonConfigFileName === 'config.json') {
+                loadConfigView();
+            }
+        } else {
+            const errorAlertEl = document.getElementById('config-json-error-alert');
+            const errorMsgEl = document.getElementById('config-json-error-msg');
+            if (errorAlertEl) {
+                errorAlertEl.classList.remove('hidden');
+                if (errorMsgEl) errorMsgEl.textContent = data.message || 'Save error';
+            }
+        }
+    })
+    .catch(err => {
+        const errorAlertEl = document.getElementById('config-json-error-alert');
+        const errorMsgEl = document.getElementById('config-json-error-msg');
+        if (errorAlertEl) {
+            errorAlertEl.classList.remove('hidden');
+            if (errorMsgEl) errorMsgEl.textContent = err.message || 'Network error';
+        }
+    })
+    .finally(() => {
+        if (saveBtn) saveBtn.disabled = false;
+    });
 }
 
 // =====================================================================
@@ -11264,10 +11790,19 @@ function toggleChannelTeam(iid, agentId) {
     bindChannelAgent(chName, ownerId, iid, members);
 }
 
+// A label or hint is either a plain string or a {zh, en, zh-Hant} map, the same
+// two shapes the channel card's own label comes in.
+function localizedText(value) {
+    if (!value) return '';
+    if (typeof value === 'object') return value[currentLang] || value.en || '';
+    return String(value);
+}
+
 function buildChannelFieldsHtml(chName, fields) {
     let html = '';
     fields.forEach(f => {
         const inputId = `ch-${chName}-${f.key}`;
+        const label = localizedText(f.label);
         let inputHtml = '';
         if (f.type === 'bool') {
             const checked = f.value ? 'checked' : '';
@@ -11284,7 +11819,7 @@ function buildChannelFieldsHtml(chName, fields) {
                        bg-slate-50 dark:bg-white/5 text-sm text-slate-800 dark:text-slate-100
                        focus:outline-none focus:border-primary-500 font-mono transition-colors
                        ${f.value ? 'cfg-key-masked' : ''}"
-                placeholder="${escapeHtml(f.label)}">`;
+                placeholder="${escapeHtml(label)}">`;
         } else {
             const inputType = f.type === 'number' ? 'number' : 'text';
             inputHtml = `<input id="${inputId}" type="${inputType}" value="${escapeHtml(String(f.value ?? f.default ?? ''))}"
@@ -11292,11 +11827,14 @@ function buildChannelFieldsHtml(chName, fields) {
                 class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600
                        bg-slate-50 dark:bg-white/5 text-sm text-slate-800 dark:text-slate-100
                        focus:outline-none focus:border-primary-500 font-mono transition-colors"
-                placeholder="${escapeHtml(f.label)}">`;
+                placeholder="${escapeHtml(label)}">`;
         }
+        const hintText = localizedText(f.hint);
+        const hint = hintText ? `<p class="mt-1.5 text-xs text-slate-400 dark:text-slate-500">${escapeHtml(hintText)}</p>` : '';
         html += `<div>
-            <label class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1.5">${escapeHtml(f.label)}</label>
+            <label class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1.5">${escapeHtml(label)}</label>
             ${inputHtml}
+            ${hint}
         </div>`;
     });
     return html;

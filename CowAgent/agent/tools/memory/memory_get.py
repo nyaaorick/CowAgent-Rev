@@ -37,15 +37,19 @@ class MemoryGetTool(BaseTool):
         "required": ["path"]
     }
     
-    def __init__(self, memory_manager):
+    def __init__(self, memory_manager, user_id=None):
         """
         Initialize memory get tool
         
         Args:
             memory_manager: MemoryManager instance
+            user_id: Whose memory this may read. None reads the shared pile
+                only, which is every channel except WeChat. Re-stamped per
+                turn by AgentBridge, since one agent serves many people.
         """
         super().__init__()
         self.memory_manager = memory_manager
+        self.user_id = user_id
 
         from config import conf
         if conf().get("knowledge", True):
@@ -60,6 +64,19 @@ class MemoryGetTool(BaseTool):
                 "description": "Relative path to the memory or knowledge file (e.g. 'MEMORY.md', 'memory/2026-01-01.md', 'knowledge/concepts/moe.md')"
             }
     
+    def _foreign_owner(self, real_file: str, real_workspace: str) -> bool:
+        """True when the path is inside a *different* person's memory dir.
+
+        Shared memory stays readable by everyone -- it is shared on purpose --
+        so only the users/ subtree is fenced.
+        """
+        rel = os.path.relpath(real_file, real_workspace)
+        parts = [p for p in rel.replace("\\", "/").split("/") if p and p != "."]
+        # memory/users/<owner>/...
+        if len(parts) < 3 or parts[0] != "memory" or parts[1] != "users":
+            return False
+        return parts[2] != (self.user_id or "")
+
     def execute(self, args: dict):
         """
         Execute memory file read
@@ -97,6 +114,17 @@ class MemoryGetTool(BaseTool):
             real_workspace = os.path.realpath(str(workspace_resolved))
             if real_file != real_workspace and not real_file.startswith(real_workspace + os.sep):
                 return ToolResult.fail(f"Error: Access denied: path outside workspace")
+
+            # memory/users/<id>/ is one person's private memory. Staying inside
+            # the workspace is not enough here: on WeChat the agent serves many
+            # people from one workspace, and this tool takes a path from the
+            # model, so a conversation with one contact could otherwise read
+            # another's file by naming it.
+            denied = self._foreign_owner(real_file, real_workspace)
+            if denied:
+                return ToolResult.fail(
+                    f"Error: Access denied: {path} belongs to another user's memory"
+                )
             
             if not file_path.exists():
                 return ToolResult.fail(f"Error: File not found: {path}")

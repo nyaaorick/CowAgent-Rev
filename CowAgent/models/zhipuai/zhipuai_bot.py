@@ -155,7 +155,7 @@ class ZHIPUAIBot(Bot, ZhipuAIImage):
                 if need_retry:
                     time.sleep(5)
             else:
-                logger.exception("[ZHIPU_AI] Exception: {}".format(e), e)
+                logger.exception("[ZHIPU_AI] Exception: {}".format(e))
                 need_retry = False
                 self.sessions.clear_session(session.session_id)
 

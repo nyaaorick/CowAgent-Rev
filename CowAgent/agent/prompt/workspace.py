@@ -57,8 +57,9 @@ def ensure_workspace(workspace_dir: str, create_templates: bool = True) -> Works
     memory_path = os.path.join(workspace_dir, DEFAULT_MEMORY_FILENAME)  # MEMORY.md at the root
     memory_dir = os.path.join(workspace_dir, "memory")  # daily memory subdirectory
     
-    # Create the memory subdirectory
+    # Create the memory subdirectory and users subdirectory
     os.makedirs(memory_dir, exist_ok=True)
+    os.makedirs(os.path.join(memory_dir, "users"), exist_ok=True)
 
     # Skills, websites and knowledge are shared across Agents, so they get
     # scaffolded through state_dir rather than under this workspace: an Agent
@@ -108,13 +109,18 @@ def ensure_workspace(workspace_dir: str, create_templates: bool = True) -> Works
     )
 
 
-def load_context_files(workspace_dir: str, files_to_load: Optional[List[str]] = None) -> List[ContextFile]:
+def load_context_files(
+    workspace_dir: str,
+    files_to_load: Optional[List[str]] = None,
+    session_id: Optional[str] = None,
+) -> List[ContextFile]:
     """
     Load the workspace context files.
 
     Args:
         workspace_dir: workspace directory
         files_to_load: list of files (relative paths) to load; if None, load all standard files
+        session_id: optional session/contact ID (e.g. wxid_xxxx) to load per-contact private memory
 
     Returns:
         A list of ContextFile objects.
@@ -169,12 +175,58 @@ def load_context_files(workspace_dir: str, files_to_load: Optional[List[str]] = 
             
         except Exception as e:
             logger.warning(f"[Workspace] Failed to load {filename}: {e}")
+
+    # Load per-contact private files if session_id is provided
+    if session_id:
+        try:
+            from agent.memory.identity import sanitize_owner_id
+            owner_id = sanitize_owner_id(session_id)
+            if owner_id:
+                user_dir = os.path.join(workspace_dir, "memory", "users", owner_id)
+                profile_path = os.path.join(user_dir, "PROFILE.md")
+                if os.path.exists(profile_path):
+                    try:
+                        with open(profile_path, 'r', encoding='utf-8') as f:
+                            profile_content = f.read().strip()
+                        if profile_content and not _is_template_placeholder(profile_content):
+                            context_files.append(ContextFile(
+                                path=f"memory/users/{owner_id}/PROFILE.md",
+                                content=profile_content
+                            ))
+                            logger.debug(f"[Workspace] Loaded contact profile for: {owner_id}")
+                    except Exception as e:
+                        logger.warning(f"[Workspace] Failed to load contact profile for {owner_id}: {e}")
+
+                user_mem_path = os.path.join(user_dir, "MEMORY.md")
+                if os.path.exists(user_mem_path):
+                    try:
+                        with open(user_mem_path, 'r', encoding='utf-8') as f:
+                            user_mem_content = f.read().strip()
+                        if user_mem_content and not _is_template_placeholder(user_mem_content):
+                            user_mem_content = _truncate_memory_content(user_mem_content)
+                            context_files.append(ContextFile(
+                                path=f"memory/users/{owner_id}/MEMORY.md",
+                                content=user_mem_content
+                            ))
+                            logger.debug(f"[Workspace] Loaded contact memory for: {owner_id}")
+                    except Exception as e:
+                        logger.warning(f"[Workspace] Failed to load contact memory for {owner_id}: {e}")
+        except Exception as e:
+            logger.warning(f"[Workspace] Error resolving contact memory for session {session_id}: {e}")
     
     return context_files
 
 
 def _create_template_if_missing(filepath: str, template_content: str):
-    """Create the template file if it does not exist."""
+    """
+    Create the template file if it does not exist on disk.
+
+    【重要说明】：
+    本方法仅在全新创建工作空间（磁盘上尚不存在对应 .md 文件）时作为脚手架初始化一次。
+    系统运行时，智能体人设、用户身份与行为规则完全由工作空间下实际的 AGENT.md / USER.md / RULE.md 等文件
+    独立加载与热生效。若需配置或修改，请直接修改对应工作空间目录下的 .md 文件（或在 Web 控制台「智能体」
+    管理页面中编辑），切勿在 prompts.json 中修改。
+    """
     if not os.path.exists(filepath):
         try:
             with open(filepath, 'w', encoding='utf-8') as f:
@@ -261,7 +313,17 @@ def _is_onboarding_done(workspace_dir: str) -> bool:
     return False
 
 
-# ============= Template content =============
+# ==============================================================================
+# ============= Template content (Initial Scaffolding Only) ===================
+#
+# 【注意】：
+# 此处的模板及 prompts.json 中的 workspace_templates 仅在全新初始化工作空间且磁盘文件不存在时，
+# 作为一次性初始骨架（Scaffolding）写入磁盘。
+#
+# ⚠️ 运行时实际生效的人设、规则、记忆由各工作空间目录下的实际 .md 文件（AGENT.md, USER.md, RULE.md 等）
+# 决定。如果需要修改智能体配置或提示词，请去工作空间中直接编辑对应的 .md 文件，或者在 Web 控制台
+# 「智能体」管理页面中进行修改，切勿在 prompts.json 中修改此处模板！
+# ==============================================================================
 
 def _is_en_lang() -> bool:
     """True when the resolved UI language is English."""
@@ -272,9 +334,13 @@ def _is_en_lang() -> bool:
         return False
 
 
-def _get_agent_template() -> str:
+def _get_agent_template(language: Optional[str] = None) -> str:
     """Agent persona template (zh/en by resolved language)."""
-    return _AGENT_TEMPLATE_EN if _is_en_lang() else _AGENT_TEMPLATE_ZH
+    from agent.prompt.manager import get_prompt
+    is_en = language == "en" if language else _is_en_lang()
+    lang_key = "en" if is_en else "zh"
+    fallback = _AGENT_TEMPLATE_EN if is_en else _AGENT_TEMPLATE_ZH
+    return get_prompt(f"workspace_templates.agent.{lang_key}", fallback=fallback)
 
 
 _AGENT_TEMPLATE_ZH = """# AGENT.md - 我是谁？
@@ -359,9 +425,13 @@ _You are not a chatbot. You are becoming someone._
 """
 
 
-def _get_user_template() -> str:
+def _get_user_template(language: Optional[str] = None) -> str:
     """User identity template (zh/en by resolved language)."""
-    return _USER_TEMPLATE_EN if _is_en_lang() else _USER_TEMPLATE_ZH
+    from agent.prompt.manager import get_prompt
+    is_en = language == "en" if language else _is_en_lang()
+    lang_key = "en" if is_en else "zh"
+    fallback = _USER_TEMPLATE_EN if is_en else _USER_TEMPLATE_ZH
+    return get_prompt(f"workspace_templates.user.{lang_key}", fallback=fallback)
 
 
 _USER_TEMPLATE_ZH = """# USER.md - 用户基本信息
@@ -420,9 +490,13 @@ _USER_TEMPLATE_EN = """# USER.md - User basics
 """
 
 
-def _get_rule_template() -> str:
+def _get_rule_template(language: Optional[str] = None) -> str:
     """Workspace rules template (zh/en by resolved language)."""
-    return _RULE_TEMPLATE_EN if _is_en_lang() else _RULE_TEMPLATE_ZH
+    from agent.prompt.manager import get_prompt
+    is_en = language == "en" if language else _is_en_lang()
+    lang_key = "en" if is_en else "zh"
+    fallback = _RULE_TEMPLATE_EN if is_en else _RULE_TEMPLATE_ZH
+    return get_prompt(f"workspace_templates.rule.{lang_key}", fallback=fallback)
 
 
 _RULE_TEMPLATE_ZH = """# RULE.md - 工作空间规则
@@ -623,9 +697,13 @@ This workspace grows as you use it. When you learn something new, find a better 
 """
 
 
-def _get_memory_template() -> str:
+def _get_memory_template(language: Optional[str] = None) -> str:
     """Long-term memory template (empty, agent fills it; zh/en header)."""
-    return _MEMORY_TEMPLATE_EN if _is_en_lang() else _MEMORY_TEMPLATE_ZH
+    from agent.prompt.manager import get_prompt
+    is_en = language == "en" if language else _is_en_lang()
+    lang_key = "en" if is_en else "zh"
+    fallback = _MEMORY_TEMPLATE_EN if is_en else _MEMORY_TEMPLATE_ZH
+    return get_prompt(f"workspace_templates.memory.{lang_key}", fallback=fallback)
 
 
 _MEMORY_TEMPLATE_ZH = """# MEMORY.md - 长期记忆
@@ -646,20 +724,26 @@ _MEMORY_TEMPLATE_EN = """# MEMORY.md - Long-term memory
 """
 
 
-def _get_bootstrap_template() -> str:
+def _get_bootstrap_template(language: Optional[str] = None) -> str:
     """First-run onboarding guide, deleted by agent after completion.
 
     Written once when a brand-new workspace is created, so the greeting matches
     the language active at first launch. English locale avoids greeting an
     English user in Chinese on day one.
     """
-    try:
-        from common import i18n
-        if i18n.get_language() == "en":
-            return _BOOTSTRAP_TEMPLATE_EN
-    except Exception:
-        pass
-    return _BOOTSTRAP_TEMPLATE_ZH
+    if language:
+        is_en = language == "en"
+    else:
+        is_en = False
+        try:
+            from common import i18n
+            is_en = i18n.get_language() == "en"
+        except Exception:
+            pass
+    fallback = _BOOTSTRAP_TEMPLATE_EN if is_en else _BOOTSTRAP_TEMPLATE_ZH
+    from agent.prompt.manager import get_prompt
+    lang_key = "en" if is_en else "zh"
+    return get_prompt(f"workspace_templates.bootstrap.{lang_key}", fallback=fallback)
 
 
 _BOOTSTRAP_TEMPLATE_ZH = """# BOOTSTRAP.md - 首次初始化引导
@@ -734,10 +818,15 @@ When the core fields of AGENT.md and USER.md are filled in, run `rm BOOTSTRAP.md
 
 def _get_knowledge_index_template() -> str:
     """Knowledge wiki index template — empty file, agent fills it."""
-    return ""
+    from agent.prompt.manager import get_prompt
+    lang_key = "en" if _is_en_lang() else "zh"
+    return get_prompt(f"workspace_templates.knowledge_index.{lang_key}", fallback="")
 
 
 def _get_knowledge_log_template() -> str:
     """Knowledge wiki operation log template — empty file, agent fills it."""
-    return ""
+    from agent.prompt.manager import get_prompt
+    lang_key = "en" if _is_en_lang() else "zh"
+    return get_prompt(f"workspace_templates.knowledge_log.{lang_key}", fallback="")
+
 

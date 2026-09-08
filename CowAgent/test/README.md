@@ -10,7 +10,9 @@ Two steps on a fresh Windows machine.
 git clone https://github.com/nyaaorick/CowAgent-Rev.git
 ```
 
-That is the whole thing. One clone — or one `git pull` — gets everything. A GitHub ZIP download works too.
+That is the whole thing. **WeChatFerry is vendored inside this repository**, so
+one clone — or one `git pull` — gets both halves. No `--recursive`, no submodule
+init. A GitHub ZIP download works too.
 
 ### 2. Double-click `run.cmd`
 
@@ -27,7 +29,7 @@ Then open <http://127.0.0.1:9899>.
 | Step | Action |
 |---|---|
 | 1 | Finds Python 3.13 → 3.10 via the `py` launcher, else `python` on PATH |
-| 2 | Verifies dependencies and environment |
+| 2 | Notes that the WeChatFerry runtime installs as the `wcferry` wheel |
 | 3 | Creates `.venv` and installs `requirements.txt` (first run only) |
 | 4 | Creates `config.json` from the template; refuses to start without an API key |
 | 5 | Starts `app.py` with `PYTHONUTF8=1` so Chinese text is not mangled |
@@ -36,9 +38,65 @@ Re-running is cheap: steps 3–4 are skipped once satisfied.
 
 ## Channels
 
-`config.example.json` ships with `"channel_type": "web"` to launch the web console interface at `http://127.0.0.1:9899`.
-You can also set `"channel_type": "terminal"` for direct terminal CLI interaction.
+`config.example.json` ships with `"channel_type": "web"`, which opens the web
+console at <http://127.0.0.1:9899>. `"terminal"` gives you a plain CLI instead.
 
+## Driving a real WeChat account
+
+Edit `config.json` (next to `app.py`):
+
+```json
+{
+  "channel_type": "wcf, web",
+  "wcf_contact_white_list": ["filehelper"],
+  "single_chat_prefix": [""],
+  "group_name_white_list": ["ALL_GROUP"]
+}
+```
+
+- **`wcf_contact_white_list`** — who the bot is allowed to talk to in a private
+  chat. This is your own WeChat account, so it **answers nobody until you name
+  somebody**: an empty list is silence, not "everyone". An entry matches either a
+  wxid (`filehelper`, `wxid_1a2b3c`) or a contact's display name — both work,
+  because contact names do not always resolve on WeChat 3.9.12.56. `"ALL_CONTACT"`
+  opens every private chat; type it only if you mean it.
+  Start with `filehelper` (文件传输助手): it is you talking to yourself, so you can
+  test the whole loop without messaging another person.
+- **`single_chat_prefix: [""]`** — without this the bot only answers private
+  messages that start with `bot` / `@bot` (the upstream default), which looks
+  exactly like a broken bot. `run.cmd` refuses to start `wcf` with a prefix that
+  would swallow every message.
+- **`group_name_white_list`** — groups are gated separately; the contact list
+  above does not apply to them. `"ALL_GROUP"` enables all of them, and in a group
+  the bot still only replies when `@`-mentioned.
+- **`"wcf, web"`** runs the WeChat bot *and* the console together. That is what
+  lets you watch the conversation while it happens — see below.
+
+It also requires:
+
+- **WeChat `3.9.12.x`** — `wcferry` 39.6 does not attach to WeChat 4.x. Install
+  the matching build, log in on this machine, and disable auto-update.
+- `wcferry` in `.venv` — the Windows-only wheel; `requirements.txt` installs it
+  automatically on Windows.
+
+Text messages only. Images, voice and files are Milestone 4.3 in
+[`ROADMAP.md`](../../ROADMAP.md); anything else that arrives is logged and skipped.
+
+### Watching WeChat conversations in the console
+
+With `"channel_type": "wcf, web"`, every WeChat chat the agent holds appears in
+the console's conversation list at <http://127.0.0.1:9899>, marked with a green
+WeChat icon — one entry per contact, with the full back-and-forth inside. It
+keeps updating while the conversation runs.
+
+These conversations are **read-only here**. The message box is greyed out on a
+WeChat chat on purpose: a reply typed in the console would be delivered to the
+browser while your contact sat waiting in WeChat. Reply from WeChat.
+
+You can also edit the contact list from the console — **Channels → 微信
+(WeChatFerry)** — instead of hand-editing `config.json`. A contact added there
+takes effect on the next message; no restart, which matters because restarting
+the WeChat hook means restarting WeChat itself.
 
 ## Remote debugging from another machine (optional)
 

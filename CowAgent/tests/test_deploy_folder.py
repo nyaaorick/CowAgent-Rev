@@ -48,7 +48,8 @@ def test_no_api_key_shaped_string_anywhere_in_the_folder():
 
 
 def test_the_example_config_defaults_to_a_channel_that_can_actually_start():
-    """A first run must start on a supported channel."""
+    """`wcf` needs a logged-in WeChat and an injected spy.dll, so a first run
+    must not default to it."""
     cfg = json.load(io.open(os.path.join(DEPLOY, "config.example.json"), encoding="utf-8"))
     assert cfg["channel_type"] in ("web", "terminal")
 
@@ -69,9 +70,13 @@ def test_run_cmd_sets_utf8_before_anything_prints():
     assert "chcp 65001" in cmd
 
 
-def test_run_cmd_does_not_mention_submodules():
+def test_run_cmd_explains_where_the_wechatferry_runtime_comes_from():
+    """WeChatFerry is vendored source, but the runtime is the wcferry wheel.
+    Confusing the two has already produced wrong conclusions (ROADMAP), and
+    submodule advice would be wrong outright."""
     cmd = _read("run.cmd")
-    assert "git submodule" not in cmd
+    assert "WeChatFerry" in cmd
+    assert "git submodule" not in cmd, "WeChatFerry is vendored; submodule advice is wrong"
 
 
 def test_the_real_config_is_git_ignored():
@@ -158,3 +163,137 @@ def test_enable_ssh_offers_a_windows_update_fallback():
     ps1 = _read("enable-ssh.ps1")
     assert "Win32-OpenSSH" in ps1, "must point at the GitHub release"
     assert "dism.log" in ps1, "must say how to diagnose the stall"
+
+
+# --------------------------------------------------- the wcf pre-flight checks
+# The two misconfigurations below start cleanly, log nothing alarming, and
+# answer every WeChat message with silence. check_config.py exists to turn that
+# into a message before app.py starts, so these guard it.
+def _check_config_with(tmp_path, cfg):
+    """Run check_config.main() against `cfg`, returning its exit code and output."""
+    import importlib.util
+    import sys
+
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+
+    spec = importlib.util.spec_from_file_location(
+        "_check_config_under_test", os.path.join(DEPLOY, "check_config.py")
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.CFG = str(cfg_path)
+
+    import io as _io
+    from contextlib import redirect_stdout
+
+    buf = _io.StringIO()
+    code = 0
+    try:
+        with redirect_stdout(buf):
+            module.main()
+    except SystemExit as e:
+        code = e.code
+    return code, buf.getvalue()
+
+
+def _base_cfg(**overrides):
+    cfg = {"zhipu_ai_api_key": "sk-not-a-real-key-000", "channel_type": "web"}
+    cfg.update(overrides)
+    return cfg
+
+
+def test_a_supported_channel_passes(tmp_path):
+    code, _ = _check_config_with(tmp_path, _base_cfg())
+    assert code == 0
+
+
+def test_an_unknown_channel_is_rejected(tmp_path):
+    code, out = _check_config_with(tmp_path, _base_cfg(channel_type="feishu"))
+    assert code == 1
+    assert "feishu" in out
+
+
+@pytest.mark.skipif(
+    __import__("importlib").util.find_spec("wcferry") is None,
+    reason="wcferry is Windows-only; its absence is its own check",
+)
+def test_several_channels_are_each_checked(tmp_path):
+    """channel_type runs one channel or several; "wcf, web" must still get the
+    wcf checks rather than being read as one unknown channel name.
+
+    Needs wcferry present: check_config exits on the first failed wcf check,
+    and the missing-package one comes before the white-list one."""
+    code, out = _check_config_with(
+        tmp_path,
+        _base_cfg(channel_type="wcf, web", wcf_contact_white_list=[],
+                  single_chat_prefix=[""]),
+    )
+    assert code == 1
+    assert "wcf_contact_white_list" in out
+
+
+@pytest.mark.skipif(
+    __import__("importlib").util.find_spec("wcferry") is None,
+    reason="wcferry is Windows-only; its absence is its own check",
+)
+def test_an_empty_contact_list_is_refused(tmp_path):
+    code, out = _check_config_with(
+        tmp_path,
+        _base_cfg(channel_type="wcf", wcf_contact_white_list=[],
+                  single_chat_prefix=[""]),
+    )
+    assert code == 1
+    assert "answer nobody" in out
+
+
+@pytest.mark.skipif(
+    __import__("importlib").util.find_spec("wcferry") is None,
+    reason="wcferry is Windows-only; its absence is its own check",
+)
+def test_a_contact_list_of_nothing_usable_is_refused(tmp_path):
+    """The channel drops non-string entries, so [null] is an empty white list
+    wearing a non-empty list's clothes -- truthiness alone would pass it."""
+    code, out = _check_config_with(
+        tmp_path,
+        _base_cfg(channel_type="wcf", wcf_contact_white_list=[None, "  "],
+                  single_chat_prefix=[""]),
+    )
+    assert code == 1
+    assert "answer nobody" in out
+
+
+@pytest.mark.skipif(
+    __import__("importlib").util.find_spec("wcferry") is None,
+    reason="wcferry is Windows-only; its absence is its own check",
+)
+def test_a_prefix_that_would_swallow_every_message_is_refused(tmp_path):
+    """single_chat_prefix defaults to ["bot"], which drops a WeChat contact's
+    plain message. The web console prepends the prefix itself and never hits
+    this, so the default looks harmless until wcf is switched on."""
+    code, out = _check_config_with(
+        tmp_path,
+        _base_cfg(channel_type="wcf", wcf_contact_white_list=["filehelper"],
+                  single_chat_prefix=["bot", "@bot"]),
+    )
+    assert code == 1
+    assert "single_chat_prefix" in out
+
+
+@pytest.mark.skipif(
+    __import__("importlib").util.find_spec("wcferry") is None,
+    reason="wcferry is Windows-only; its absence is its own check",
+)
+def test_a_correctly_configured_wcf_channel_passes(tmp_path):
+    code, _ = _check_config_with(
+        tmp_path,
+        _base_cfg(channel_type="wcf", wcf_contact_white_list=["filehelper"],
+                  single_chat_prefix=[""]),
+    )
+    assert code == 0
+
+
+def test_the_example_config_answers_plain_wechat_messages():
+    """A fresh install must not need "bot " in front of every WeChat message."""
+    cfg = json.load(io.open(os.path.join(DEPLOY, "config.example.json"), encoding="utf-8"))
+    assert "" in cfg["single_chat_prefix"]

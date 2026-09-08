@@ -3,11 +3,9 @@ CowCli plugin - Intercept cow/slash commands in chat messages.
 
 Matches messages like:
   cow skill list
-  cow install-browser
   /skill list
   /context clear
   /status
-  /install-browser
 
 Does NOT match:
   cow是什么
@@ -35,9 +33,8 @@ KNOWN_COMMANDS = {
     "help", "version", "status", "logs",
     "start", "stop", "restart",
     "cancel",
-    "skill", "context", "config", "tasks",
+    "skill", "context", "config",
     "knowledge", "memory", "compact", "clear",
-    "install-browser",
 }
 
 # Commands that can only run from the CLI (terminal), not in chat.
@@ -359,7 +356,6 @@ class CowCliPlugin(Plugin):
                 "/context: Show current conversation context",
                 "/clear: Clear current conversation context",
                 "/compact: Summarize older turns to free up context",
-                "/tasks: List scheduled tasks for this chat",
                 "/skill list: List installed skills",
                 "/skill list --remote: Browse Skill Hub",
                 "/skill search <keyword>: Search skills",
@@ -389,7 +385,6 @@ class CowCliPlugin(Plugin):
                 "/context: 查看当前对话上下文信息",
                 "/clear: 清除当前对话上下文",
                 "/compact: 总结较早的对话以释放上下文",
-                "/tasks: 查看当前会话的定时任务",
                 "/skill list: 查看已安装的技能",
                 "/skill list --remote: 浏览技能广场",
                 "/skill search <关键词>: 搜索技能",
@@ -411,84 +406,6 @@ class CowCliPlugin(Plugin):
 
     def _cmd_version(self, args: str, e_context, **_) -> str:
         return f"CowAgent v{__version__}"
-
-    # ------------------------------------------------------------------
-    # tasks — read-only scheduler list scoped to the current chat.
-    # Feishu intercepts /tasks before this plugin to keep its interactive card;
-    # every other channel receives this plain-text view.
-    # ------------------------------------------------------------------
-
-    def _cmd_tasks(self, args: str, e_context, session_id: str = "", **_) -> str:
-        from agent.tools.scheduler.integration import get_task_store
-
-        task_store = get_task_store()
-        if task_store is None:
-            from agent.tools.scheduler.task_store import TaskStore
-            from common.state_dir import scheduler_file
-
-            task_store = TaskStore(str(scheduler_file()))
-
-        channel_type = ""
-        receiver = ""
-        if e_context is not None:
-            context = e_context["context"]
-            channel_type = context.get("channel_type", "") or ""
-            receiver = context.get("receiver", "") or ""
-            session_id = context.get("session_id", "") or session_id
-
-        visible = []
-        for task in task_store.list_tasks():
-            action = task.get("action") or {}
-            if receiver:
-                if action.get("receiver") != receiver:
-                    continue
-                if channel_type and action.get("channel_type") != channel_type:
-                    continue
-            elif session_id not in {
-                action.get("receiver"),
-                action.get("notify_session_id"),
-            }:
-                continue
-            visible.append(task)
-
-        return self._format_tasks(visible)
-
-    @staticmethod
-    def _format_tasks(tasks) -> str:
-        if not tasks:
-            return _t(
-                "📅 当前会话暂无定时任务。",
-                "📅 No scheduled tasks in this chat.",
-            )
-
-        lines = [_t("📅 当前会话的定时任务", "📅 Scheduled tasks in this chat"), ""]
-        for index, task in enumerate(tasks[:20], 1):
-            enabled = task.get("enabled", True)
-            status = "✅" if enabled else "⏸️"
-            schedule = task.get("schedule") or {}
-            schedule_type = schedule.get("type")
-            if schedule_type == "cron":
-                schedule_text = "cron {}".format(schedule.get("expression") or "?")
-            elif schedule_type == "interval":
-                schedule_text = "every {}s".format(schedule.get("seconds") or "?")
-            elif schedule_type == "once":
-                schedule_text = "once at {}".format(schedule.get("run_at") or "?")
-            else:
-                schedule_text = str(schedule_type or "unknown")
-
-            next_run = str(task.get("next_run_at") or "-").replace("T", " ")
-            lines.extend(
-                [
-                    "{}. {} {}".format(index, status, task.get("name") or "Unnamed task"),
-                    "   ID: {}".format(task.get("id") or "-"),
-                    "   {} · Next: {}".format(schedule_text, next_run),
-                ]
-            )
-
-        hidden = len(tasks) - 20
-        if hidden > 0:
-            lines.append(_t("\n另有 {} 个任务未显示。", "\n{} more tasks are hidden.").format(hidden))
-        return "\n".join(lines)
 
     # ------------------------------------------------------------------
     # cancel — abort the in-flight agent run for the current session.
@@ -890,59 +807,6 @@ class CowCliPlugin(Plugin):
             if lowered_model.startswith(prefix):
                 return btype
         return const.OPENAI
-
-    # ------------------------------------------------------------------
-    # install-browser (shared logic with cow install-browser CLI)
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _send_install_progress(e_context, text: str) -> None:
-        """Push a short status line to the chat channel (SSE: phase event, not done)."""
-        if e_context is None:
-            logger.info(f"[CowCli] install-browser: {text}")
-            return
-        try:
-            channel = e_context["channel"]
-            context = e_context["context"]
-            if channel and context:
-                r = Reply(ReplyType.TEXT, text)
-                r.sse_phase = True
-                channel.send(r, context)
-        except Exception as e:
-            logger.warning(f"[CowCli] install-browser progress send failed: {e}")
-
-    def _cmd_install_browser(self, args: str, e_context, **_) -> str:
-        from cli.commands.install import run_install_browser
-
-        if args.strip():
-            return _t(
-                "用法: /install-browser\n\n"
-                "无需参数，等同于终端执行 `cow install-browser`。\n"
-                "安装过程可能持续数分钟；进度会以多条消息推送，pip 详细输出见服务日志。",
-                "Usage: /install-browser\n\n"
-                "No arguments needed; equivalent to running `cow install-browser` in a terminal.\n"
-                "Installation may take a few minutes; progress is pushed as multiple messages, and detailed pip output goes to the service log.",
-            )
-
-        # Suppress detailed stream in chat; phases go through channel.send
-        def _noop_stream(msg: str, fg=None):
-            pass
-
-        code = run_install_browser(
-            stream=_noop_stream,
-            on_phase=lambda m: self._send_install_progress(e_context, m),
-        )
-        if code != 0:
-            return _t(
-                "❌ 安装未成功结束，请查看上方分段提示或服务器日志；"
-                "也可在终端执行 `cow install-browser`。",
-                "❌ Installation did not finish successfully. Check the messages above or the server log; "
-                "you can also run `cow install-browser` in a terminal.",
-            )
-        return _t(
-            "✅ 安装流程已结束。请重启 CowAgent 后使用 browser 工具。",
-            "✅ Installation finished. Restart CowAgent to use the browser tool.",
-        )
 
     # ------------------------------------------------------------------
     # skill

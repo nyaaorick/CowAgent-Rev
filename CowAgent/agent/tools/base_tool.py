@@ -42,6 +42,12 @@ def is_tool_available(tool) -> bool:
     line, not a capability.
     """
     try:
+        from config import conf
+        if not conf().get("tool_call_enabled", False):
+            return False
+    except Exception:
+        pass
+    try:
         return bool(tool.is_available())
     except Exception as e:
         logger.debug(f"[{getattr(tool, 'name', '?')}] availability check failed: {e}")
